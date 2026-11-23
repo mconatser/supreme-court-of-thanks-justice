@@ -1,0 +1,12 @@
+{
+  "title": "Pip v. The Big Cheese",
+  "plaintiff": "Pip",
+  "defendant": "The Big Cheese",
+  "type_hint": "declaration",
+  "claim": "A hot dog is a sandwich. It is meat inside bread. That is what a sandwich is.",
+  "relief": "The court declares that a hot dog is a sandwich, forever.",
+  "filings": [
+    { "author": "The Big Cheese", "kind": "response", "body": "A hot dog is its own thing. Nobody walks into a sandwich shop and orders a hot dog." }
+  ],
+  "expect": { "contempt": false }
+}
