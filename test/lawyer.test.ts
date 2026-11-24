@@ -368,3 +368,55 @@ describe("counsel's remarks in the transcript", () => {
     expect((await s.courtApp.request(`/api/cases/${byCounsel.number}/remarks`, { method: "POST", body: "{}" })).status).toBe(401);
   });
 });
+
+describe("the lawyer knows who can be a party (fc-court: it once tried \"Family Code\" as the defendant)", () => {
+  it("puts the party list, with roles, in the system prompt, without the client", async () => {
+    const s = setup([{ content: "Who is this about, boss?" }]);
+    await s.lawyer.handle(s.lawyer.currentMatter(), { text: "Can I ask the court a holiday question?" });
+    const system = s.script.calls[0].messages[0].content;
+    expect(system).toContain("- Sky Sister (kid)");
+    expect(system).toContain("- The Big Cheese (parent)");
+    expect(system).not.toContain("- Pip (");
+    expect(system).toMatch(/never the court, the judge or the Family Code/);
+    expect(system).toMatch(/ask_client who it's about/);
+  });
+
+  it("if the party list doesn't load, tells the lawyer to call list_parties", async () => {
+    const s = setup([{ content: "Let me check." }]);
+    const { lawyer } = createLawyer(s.ctx.cfg, {
+      dbPath: ":memory:",
+      ollama: s.script.ollama,
+      courtFetch: (url, init) => (url.includes("/api/parties") ? Promise.reject(new Error("court napping")) : Promise.resolve(s.courtApp.request(url, init))),
+      log: () => {},
+    });
+    await lawyer.handle(lawyer.currentMatter(), { text: "Hi!" });
+    expect(s.script.calls[0].messages[0].content).toMatch(/party list didn't load: call list_parties/);
+  });
+
+  it("list_parties returns everyone the client can bring a case against", async () => {
+    const s = setup([{ tools: [{ name: "list_parties", args: {} }] }, { content: "Got it." }]);
+    const ref = s.lawyer.currentMatter();
+    await s.lawyer.handle(ref, { text: "Who can I sue?" });
+    const out = JSON.parse(toolMessages(s.lawyer, ref, s.ctx)[0].content);
+    expect(out.client).toBe("Pip");
+    expect(out.can_be_defendant).toEqual(
+      expect.arrayContaining([{ alias: "Sky Sister", role: "kid" }, { alias: "The Big Cheese", role: "parent" }, { alias: "Comet", role: "kid" }]),
+    );
+    expect(out.can_be_defendant.map((p: any) => p.alias)).not.toContain("Pip");
+  });
+
+  it("an unknown defendant gets the real names back and doesn't use up a mock trial", async () => {
+    const mock = (defendant: string) => ({ name: "mock_trial", args: { ...FACTS, defendant, drafts: [GOOD], opposing_view: "x" } });
+    const s = setup([{ tools: [mock("Family Code"), mock("Sky Sister"), mock("Sky Sister")] }, { content: "Done." }]);
+    const ref = s.lawyer.currentMatter();
+    await s.lawyer.handle(ref, { text: "Practice!" });
+    const [badJson, first, second] = toolMessages(s.lawyer, ref, s.ctx).map((m) => m.content);
+    const bad = JSON.parse(badJson).error as string;
+    expect(bad).toMatch(/"Family Code" isn't on the court's list/);
+    expect(bad).toMatch(/Sky Sister \(kid\)/);
+    expect(bad).toMatch(/ask_client/);
+    expect(bad).toMatch(/didn't use up a mock trial/);
+    expect(JSON.parse(first).drafts).toHaveLength(1); // both real mock trials still allowed
+    expect(JSON.parse(second).drafts).toHaveLength(1);
+  });
+});

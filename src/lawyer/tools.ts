@@ -69,6 +69,7 @@ const FILING_PROPS = {
 
 export const TOOL_DEFS = [
   fn("read_family_code", "Read the Family Code (the house laws) and the sentencing guidelines from the court's law library.", {}),
+  fn("list_parties", "The people your client can bring a case against: exact aliases and roles from the court's list.", {}),
   fn("search_precedent", "Search the court's past rulings and landmark cases.", { query: str("What the dispute is about") }, ["query"]),
   fn(
     "ask_client",
@@ -120,6 +121,15 @@ export async function runTool(name: string, args: Record<string, unknown>, state
           result: { articles: law.articles, sentencing_guidelines: law.sentencing, notes: law.warnings },
         };
       }
+      case "list_parties": {
+        const parties = await deps.court.parties();
+        const others = parties.filter((p) => p.alias.toLowerCase() !== deps.client.toLowerCase());
+        return {
+          ok: true,
+          note: `Checking who's on the court's list (${others.length} people)…`,
+          result: { client: deps.client, can_be_defendant: others.map((p) => ({ alias: p.alias, role: p.role })) },
+        };
+      }
       case "search_precedent": {
         const q = String(args.query ?? "");
         const found = await deps.court.precedent(q);
@@ -147,7 +157,13 @@ export async function runTool(name: string, args: Record<string, unknown>, state
         if (!f.success) return fail("Tried a mock trial without the case details.", f.error.issues[0]?.message ?? "missing case details");
         const parties = await deps.court.parties();
         const opp = parties.find((p) => p.alias.toLowerCase() === f.data.defendant.toLowerCase());
-        if (!opp) return fail("Tried a mock trial against someone not on the court's list.", `Unknown party "${f.data.defendant}". Parties: ${parties.map((p) => p.alias).join(", ")}`);
+        if (!opp) {
+          const names = parties.filter((p) => p.alias.toLowerCase() !== deps.client.toLowerCase()).map((p) => `${p.alias} (${p.role})`);
+          return fail(
+            "Tried a mock trial against someone not on the court's list.",
+            `"${f.data.defendant}" isn't on the court's list. The defendant must be one of: ${names.join(", ")}. If you're not sure which, ask_client before trying again. (This didn't use up a mock trial.)`,
+          );
+        }
         if (opp.alias.toLowerCase() === deps.client.toLowerCase()) return fail("Almost sued our own client!", "The defendant can't be your client.");
         state.mockCalls++;
         const res = await mockTrial(deps, { client: deps.client, opponent: opp.alias, title: f.data.title, claim: f.data.claim, relief: f.data.relief }, drafts, String(args.opposing_view ?? ""));

@@ -32,6 +32,20 @@ Keep everything PG, short and fun.
 
 How a case usually goes: interview your client (ask_client) until you know what happened and what they want; read_family_code; search_precedent; mock_trial with 2 or 3 different drafts; explain the results and your pick; ask_client with confirm_filing; file_case with exactly that filing; watch_hearing; then tell your client what happened and what you learned.`;
 
+/**
+ * Who can be a party, in the system prompt. Every case needs a defendant from this list: on
+ * fc-court the lawyer once tried "Family Code" as the defendant for a plain question to the court.
+ */
+export function partiesSection(client: string, parties: { alias: string; role: string }[] | null): string {
+  const rule =
+    "Every case is against one of these people, written exactly as shown. Never your own client, and never the court, the judge or the Family Code. " +
+    "If it isn't clear who the case is against, ask_client who it's about, listing these names, before any mock_trial. " +
+    "A question for the court is a real case (a declaration) whenever the Family Code allows it, so check read_family_code rather than turning it down: ask your client who disagrees with them, and that person is the defendant.";
+  if (!parties) return `Your client is ${client}. The court's party list didn't load: call list_parties before any mock_trial. ${rule}`;
+  const others = parties.filter((p) => p.alias.toLowerCase() !== client.toLowerCase());
+  return [`Your client is ${client}. People your client can bring a case against (alias, role):`, ...others.map((p) => `- ${p.alias} (${p.role})`), rule].join("\n");
+}
+
 export interface LawyerContext {
   cfg: Config;
   db: LawyerDB;
@@ -204,13 +218,13 @@ export class Lawyer {
     }
   }
 
-  private systemPrompt(parties: string[]): string {
+  private systemPrompt(parties: { alias: string; role: string }[] | null): string {
     const persona = this.persona();
     const lessons = recentLessons(this.ctx.db);
     return [
       persona.trim(),
       FIXED_RULES,
-      `Your client is ${this.client}. People who can be parties (use these exact names): ${parties.join(", ")}.`,
+      partiesSection(this.client!, parties),
       lessons.length ? `Lessons from your past cases:\n${lessons.map((l) => `- ${l}`).join("\n")}` : "",
     ]
       .filter(Boolean)
@@ -221,7 +235,8 @@ export class Lawyer {
     const row = this.load(ref);
     const messages = JSON.parse(row.messages_json) as ChatMessage[];
     const state = this.stateOf(row);
-    const parties = await this.ctx.court.parties().then((p) => p.map((x) => x.alias)).catch(() => [] as string[]);
+    // The court's party list, up front, so the lawyer picks real people instead of guessing.
+    const parties = await this.ctx.court.parties().catch(() => this.ctx.court.parties().catch(() => null));
     const system: ChatMessage = { role: "system", content: this.systemPrompt(parties) };
     const deps = {
       db: this.ctx.db,
