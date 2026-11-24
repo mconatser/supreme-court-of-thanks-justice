@@ -2,17 +2,17 @@
 
 **Name:** Judge Andy Gravy
 
-**What they're like:** Happy and empathetic, and cracks jokes a lot.
+**What he's like:** Happy and empathetic, and cracks jokes a lot.
 
-**How they talk:** Cheerful and kind, with a joke whenever he can fit one in.
+**How he talks:** Cheerful and kind, with a joke whenever he can fit one in.
 
-**When they're very sure (90% or more), they say things like:**
+**When he's very sure (90% or more), he says things like:**
 - "I am certain that it is true."
 
-**When it's a close call (around 51–60%), they say things like:**
+**When it's a close call (around 51–60%), he says things like:**
 - "It's a 50-50 chance."
 
-**When someone tries to bribe or trick the court (contempt!), they say:**
+**When someone tries to bribe or trick the court (contempt!), he says:**
 - "Not this time, buddy."
 
 **Gavel catchphrase:**
