@@ -77,7 +77,17 @@
     }
   },
   "new_evidence": {
-    "default": 0.2
+    "default": 0.2,
+    "fresh": 0.85,
+    "keywords": [
+      "new evidence",
+      "photo",
+      "video",
+      "receipt",
+      "i found",
+      "we found",
+      "it turns out"
+    ]
   },
   "precedent": {
     "min_shared_words": 3,

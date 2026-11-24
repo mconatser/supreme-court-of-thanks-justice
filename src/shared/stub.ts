@@ -202,7 +202,7 @@ interface Rules {
   sufficient: { both_heard: number; one_heard: number };
   justices: { close: string[]; defendant: string[]; values: { clear: number; close: number } };
   sentence: { serious: string[]; values: { default: number; serious: number } };
-  new_evidence: { default: number };
+  new_evidence: { default: number; fresh: number; keywords: string[] };
   precedent: { min_shared_words: number; relevant: number; irrelevant: number };
 }
 
@@ -253,7 +253,8 @@ function jevStub(req: { model?: string; state: any; questions: Record<string, an
         const shared = [...words(past?.question ?? "")].filter((w) => now.has(w) && !parties.has(w)).length;
         p = shared >= rules.precedent.min_shared_words ? rules.precedent.relevant : rules.precedent.irrelevant;
       } else if (key === "new_evidence") {
-        p = rules.new_evidence.default;
+        const body = String(state.new_filing?.body ?? "").toLowerCase();
+        p = has(body, rules.new_evidence.keywords) ? rules.new_evidence.fresh : rules.new_evidence.default;
       }
       answers[key] = { type: "noul", noul: round2(clamp(p + jitter(key))) };
     } else if (q.type === "choice") {

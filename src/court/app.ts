@@ -19,7 +19,7 @@ import { linkParties, FINAL_STATUSES, OPEN_STATUSES, type EventRow } from "./db.
 import { labelsFor } from "./labels.ts";
 import { loadPeople, PeopleError, publicParty } from "../shared/people.ts";
 import { landmarkAsPrecedent } from "./landmarks.ts";
-import { ApprovalError, SummonsError } from "./hearing.ts";
+import { AppealError, ApprovalError, SummonsError } from "./hearing.ts";
 import { caseLabel } from "./precedent.ts";
 import { findPrecedent } from "./precedent.ts";
 import { caseView, docketView, publicEvent } from "./views.ts";
@@ -151,9 +151,28 @@ export function createCourtApp(ctx: CourtContext, opts: CourtAppOptions = {}) {
 
   app.get("/cases/:n{[0-9]+}/verdict.mp3", court, (c) => {
     const n = Number(c.req.param("n"));
-    if (!ctx.voice.hasAudio(n)) return c.json({ error: "The judge hasn't recorded this verdict." }, 404);
-    const bytes = readFileSync(ctx.voice.audioPath(n));
+    const round = c.req.query("round") === "1" ? 1 : 0;
+    if (!ctx.voice.hasAudio(n, round)) return c.json({ error: "The judge hasn't recorded this verdict." }, 404);
+    const bytes = readFileSync(ctx.voice.audioPath(n, round));
     return c.body(bytes, 200, { "content-type": "audio/mpeg", "cache-control": "private, max-age=86400", "content-length": String(bytes.length) });
+  });
+
+  app.post("/cases/:n{[0-9]+}/appeal", court, async (c) => {
+    const k = ctx.hearings.getCaseByNumber(Number(c.req.param("n")));
+    if (!k) return c.json({ error: "The court can't find that case." }, 404);
+    if (!ctx.budget.canAfford({ jev: 3 })) return c.json({ error: RECESS_MESSAGE }, 503);
+    if (!filingLimiter.take(clientIp(c))) return c.json({ error: "Whoa, that's a lot of filings! Try again later." }, 429);
+    const body = (await c.req.json().catch(() => ({}))) as { party?: unknown; evidence?: unknown };
+    const evidence = String(body.evidence ?? "").trim();
+    if (evidence.length < 5) return c.json({ error: "An appeal needs new evidence. What's new?" }, 400);
+    if (evidence.length > LIMITS.filing) return c.json({ error: `Keep it under ${LIMITS.filing} characters.` }, 400);
+    try {
+      ctx.hearings.fileAppeal(k.id, String(body.party ?? ""), evidence);
+    } catch (err) {
+      if (err instanceof AppealError) return c.json({ error: err.message }, 409);
+      throw err;
+    }
+    return c.json({ ok: true, url: `/cases/${k.number}` }, 201);
   });
 
   app.post("/cases/:n{[0-9]+}/approval", parent, async (c) => {
@@ -224,13 +243,16 @@ export function createCourtApp(ctx: CourtContext, opts: CourtAppOptions = {}) {
         stream.write(": heartbeat\n\n").catch(() => {});
       }, heartbeatMs);
 
+      // A case is done when it closes AND it's final now: a replayed case.closed must not end the
+      // stream of a case whose appeal is still being heard.
+      const isFinal = () => FINAL_STATUSES.has(ctx.hearings.getCase(k.id)!.status);
       const send = async (e: EventRow) => {
         if (e.id <= lastSent) return;
         // Relabel with the current aliases (people.json may have been reloaded since filing).
         const labels = labelsFor(ctx.people, ctx.hearings.getCase(k.id)!);
         await stream.writeSSE({ id: String(e.id), event: "court", data: JSON.stringify(publicEvent(e, labels)) });
         lastSent = e.id;
-        if (e.kind === "case.closed") done = true;
+        if ((e.kind === "case.closed" || e.kind === "appeal.closed") && isFinal()) done = true;
       };
 
       try {

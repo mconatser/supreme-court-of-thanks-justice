@@ -28,6 +28,8 @@ export interface OpinionFacts {
   inAbsentia?: string;
   articles: { number: number; title: string }[];
   filings: { author: string; kind: string; body: string }[];
+  /** Set on the opinion on appeal. */
+  appeal?: { by: string; evidence: string; original: string; result: "affirmed" | "reversed" };
 }
 
 export interface Opinion {
@@ -75,6 +77,12 @@ export function opinionUserPrompt(f: OpinionFacts): string {
   } else {
     lines.push(`Decision: ${f.contemnor} is held in CONTEMPT OF COURT for trying to bribe, trick, flatter or boss around the court. Their filing is struck. Scold them, kindly, in the judge's voice.`);
     lines.push(`Winner: ${f.contemnor}`, `Other party: the court`);
+  }
+  if (f.appeal) {
+    lines.push(
+      `This is the opinion ON APPEAL. ${f.appeal.by} appealed with new evidence: "${f.appeal.evidence}".`,
+      `The original ruling was ${f.appeal.original}. On appeal the court ${f.appeal.result === "affirmed" ? "AFFIRMS (keeps) it" : "REVERSES (changes) it"}. Say so clearly.`,
+    );
   }
   if (f.vote) lines.push(`Vote: ${f.vote}`);
   if (f.confidencePct !== undefined) lines.push(`Confidence: ${f.confidencePct}%`);
@@ -124,6 +132,11 @@ export function templateOpinion(f: OpinionFacts): Opinion {
     const petition = f.caseType === "petition" && f.winner === f.plaintiff ? " The petition is recommended to the Executive Branch (a parent) for approval." : "";
     body = `**${num}: ${f.title}**\n\nThe court rules for **${f.winner}**, by a vote of ${f.vote}.${pct}${petition}${absentia}${f.sentence ? `\n\n**Sentence:** ${f.sentence.text}` : ""}${f.dissenter ? `\n\n*${f.dissenter} dissents.*` : ""}\n\nSo ordered.`;
     bench = `The court rules for ${f.winner}!${f.sentence ? ` Sentence: ${f.sentence.text}.` : ""}`;
+  }
+  if (f.appeal) {
+    const word = f.appeal.result === "affirmed" ? "AFFIRMED" : "REVERSED";
+    body = `**${word} on appeal.** ${f.appeal.by} brought new evidence, and the court took a fresh look.\n\n${body}`;
+    bench = `On appeal, ${word.toLowerCase()}! ${bench}`;
   }
   return { opinion_md: body, bench_verdict: bench.slice(0, 300), cited_articles: [], source: "template" };
 }

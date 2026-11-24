@@ -12,13 +12,50 @@ import { caseLabel } from "./precedent.ts";
 type StoredSeat = Seat & { name: string };
 
 /** ready: ▶ playable · no_budget: "lost their voice for today" · unavailable: TTS failed · none: voice off */
-function voiceStatus(ctx: CourtContext, c: CaseRow) {
-  if (ctx.voice.hasAudio(c.number)) return { status: "ready", url: `/cases/${c.number}/verdict.mp3` };
-  const e = ctx.db.prepare("SELECT data_json FROM events WHERE case_id = ? AND kind = 'voice.unavailable' ORDER BY id DESC LIMIT 1").get(c.id) as
+function voiceStatus(ctx: CourtContext, c: CaseRow, round: number) {
+  if (ctx.voice.hasAudio(c.number, round)) return { status: "ready", url: `/cases/${c.number}/verdict.mp3${round ? "?round=1" : ""}` };
+  const kind = round ? "appeal.voice.unavailable" : "voice.unavailable";
+  const e = ctx.db.prepare("SELECT data_json FROM events WHERE case_id = ? AND kind = ? ORDER BY id DESC LIMIT 1").get(c.id, kind) as
     | { data_json: string | null }
     | undefined;
   if (e) return { status: JSON.parse(e.data_json ?? "{}").reason === "no_budget" ? "no_budget" : "unavailable", url: null };
   return { status: "none", url: null };
+}
+
+function appealResult(ctx: CourtContext, c: CaseRow): string | null {
+  const e = ctx.db
+    .prepare("SELECT kind, data_json FROM events WHERE case_id = ? AND kind IN ('appeal.filed','appeal.dismissed','appeal.decided') ORDER BY id DESC LIMIT 1")
+    .get(c.id) as { kind: string; data_json: string | null } | undefined;
+  if (!e) return null;
+  if (e.kind === "appeal.dismissed") return "dismissed";
+  if (e.kind === "appeal.decided") return (JSON.parse(e.data_json ?? "{}") as { result?: string }).result ?? null;
+  return "pending";
+}
+
+/** The appeal, if any: who, what, and how it ended; plus whether one can still be filed. */
+function appealView(ctx: CourtContext, c: CaseRow, filings: FilingRow[], L: Labels) {
+  const f = filings.find((x) => x.kind === "appeal");
+  const blocked = ctx.hearings.appealBlocked(c);
+  if (!f) return { status: null, canAppeal: !blocked, blockedReason: blocked, parties: [L.plaintiff, L.defendant] };
+  const ev = (kind: string) =>
+    ctx.db.prepare("SELECT data_json FROM events WHERE case_id = ? AND kind = ? ORDER BY id DESC LIMIT 1").get(c.id, kind) as { data_json: string | null } | undefined;
+  const dismissed = ev("appeal.dismissed");
+  const decided = ev("appeal.decided");
+  const status = dismissed
+    ? "dismissed"
+    : decided
+      ? (JSON.parse(decided.data_json ?? "{}").result as string)
+      : "pending";
+  return {
+    status,
+    by: L.party(f.author, f.author_id),
+    evidence: f.body,
+    struck: !!f.struck,
+    reason: dismissed ? (JSON.parse(dismissed.data_json ?? "{}").reason as string) : null,
+    canAppeal: false,
+    blockedReason: blocked,
+    parties: [L.plaintiff, L.defendant],
+  };
 }
 
 const currentAliasOf = (ctx: CourtContext, personId: string, L: Labels) => ctx.people.find((p) => p.id === personId)?.alias ?? L.plaintiff;
@@ -69,6 +106,7 @@ export function caseSummary(c: CaseRow, ctx: CourtContext) {
     confidencePct: r?.case_confidence != null ? Math.round(r.case_confidence * 100) : null,
     lean: lean ? { side: lean.side, party: sideName(lean.side), vote: lean.vote } : null,
     approval: c.approval ?? null,
+    appeal: appealResult(ctx, c),
     summoned: summons.map((s) => ctx.people.find((p) => p.id === s.person_id)?.alias).filter(Boolean),
   };
 }
@@ -120,7 +158,8 @@ export function caseView(c: CaseRow, ctx: CourtContext, roles: string[] = []) {
       seats,
       sentence: r.sentence_level != null ? { level: r.sentence_level, text: r.sentence_text } : null,
       petitionRecommended: c.type === "petition" && r.outcome === "plaintiff",
-      voice: voiceStatus(ctx, c),
+      round: r.round,
+      voice: voiceStatus(ctx, c, r.round),
       opinionMd: L.relabel(r.opinion_md),
       benchVerdict: L.relabel(r.bench_verdict),
       citedArticles: citedArticles.map((n) => ({ number: n, title: code.articles.find((a) => a.number === n)?.title ?? "" })),
@@ -135,6 +174,7 @@ export function caseView(c: CaseRow, ctx: CourtContext, roles: string[] = []) {
     ruledAt: c.ruled_at,
     running: ctx.hearings.isRunning(c.id),
     viewer: { isParent: roles.includes("parent") },
+    appeal: appealView(ctx, c, filings, L),
     // Court-passcode viewers share the family phone, so pending summonses link straight to testimony.
     summons: (ctx.db.prepare("SELECT person_id, token, status, sent_via FROM summons WHERE case_id = ? ORDER BY id").all(c.id) as {
       person_id: string;

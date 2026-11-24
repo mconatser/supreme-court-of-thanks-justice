@@ -16,7 +16,11 @@ const OUTCOME: Record<string, string> = {
 export function renderRecord(v: View, courtName: string, filedAt: Date = new Date()): string {
   const r = v.ruling;
   const lines: string[] = [];
-  lines.push(`# ${courtName}: ${v.label}`, "", `## ${v.title}`, "");
+  lines.push(`# ${courtName}: ${v.label}`, "");
+  const a = v.appeal;
+  if (a?.status === "affirmed" || a?.status === "reversed") lines.push(`> **${a.status.toUpperCase()} on appeal**`, "");
+  if (a?.status === "dismissed") lines.push(`> **APPEAL DISMISSED** (${a.reason === "contempt" ? "contempt of court" : "nothing new"})`, "");
+  lines.push(`## ${v.title}`, "");
   lines.push(`- **Parties:** ${v.plaintiff} v. ${v.defendant}`);
   lines.push(`- **Type:** ${v.type ?? "unknown"} · filed ${v.filedBy === "lawyer" ? "by counsel" : "pro se"} on ${new Date(v.createdAt).toISOString().slice(0, 10)}`);
   if (r) {
@@ -42,6 +46,9 @@ export function renderRecord(v: View, courtName: string, filedAt: Date = new Dat
     }
     if (r.opinionMd) lines.push("", "### Opinion of the Court", "", r.opinionMd.trim());
     if (r.benchVerdict) lines.push("", `> ${r.benchVerdict}`);
+  }
+  if (a?.status) {
+    lines.push("", "### Appeal", "", `- **By:** ${a.by}`, `- **Result:** ${a.status === "pending" ? "being heard" : a.status}`, `- **New evidence:** ${a.evidence.replace(/\s*\n\s*/g, " ")}`);
   }
   lines.push("", "### Filings", "");
   for (const f of v.filings) lines.push(`- **${f.author}** (${f.kind})${f.struck ? " · STRUCK FROM THE RECORD" : ""}: ${f.body.replace(/\s*\n\s*/g, " ")}`);

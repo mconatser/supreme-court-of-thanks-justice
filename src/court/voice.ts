@@ -34,16 +34,17 @@ export class Voice {
     return !!(this.opts.base && this.opts.voiceId);
   }
 
-  audioPath(caseNumber: number) {
-    return join(this.opts.dataDir, "audio", `case-${caseNumber}.mp3`);
+  /** case-7.mp3 for the trial, case-7-appeal.mp3 for the ruling on appeal. */
+  audioPath(caseNumber: number, round = 0) {
+    return join(this.opts.dataDir, "audio", `case-${caseNumber}${round ? "-appeal" : ""}.mp3`);
   }
 
-  hasAudio(caseNumber: number) {
-    return existsSync(this.audioPath(caseNumber));
+  hasAudio(caseNumber: number, round = 0) {
+    return existsSync(this.audioPath(caseNumber, round));
   }
 
-  async speak(caseNumber: number, text: string): Promise<VoiceResult> {
-    const path = this.audioPath(caseNumber);
+  async speak(caseNumber: number, text: string, round = 0): Promise<VoiceResult> {
+    const path = this.audioPath(caseNumber, round);
     if (existsSync(path)) return { status: "ready", path, cached: true }; // never synthesize the same verdict twice
     if (!this.enabled) return { status: "disabled" };
     const words = text.trim().slice(0, BENCH_VERDICT_MAX);

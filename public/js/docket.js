@@ -35,6 +35,7 @@
         if (c.status === "ruled" && c.winner) result = `For ${c.winner} · ${c.vote} · ${c.confidencePct}% sure`;
         else if (c.status === "too_close") result = `Too close to call: compromise ordered${c.lean ? ` (leaning ${c.lean.party} ${c.lean.vote})` : ""}`;
         else if (c.status === "contempt") result = "Held in contempt of court";
+        if (c.appeal) result += { pending: " · 📣 on appeal", dismissed: " · 📣 appeal dismissed", affirmed: " · 📣 affirmed on appeal", reversed: " · 📣 reversed on appeal" }[c.appeal] || "";
         if (c.approval === "pending") result += " · 👑 waiting for a parent's OK";
         else if (c.approval === "approved") result += " · 👑 approved";
         else if (c.approval === "denied") result += " · 👑 not approved";

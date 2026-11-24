@@ -21,7 +21,47 @@
     renderFilings(c.filings);
     renderSummons(c.summons || []);
     renderRuling(c);
+    renderAppeal(c);
     return c;
+  }
+
+  function renderAppeal(c) {
+    const slot = document.getElementById("appeal-slot");
+    const a = c.appeal;
+    if (!a || (!a.canAppeal && !a.status)) return slot.replaceChildren();
+    if (a.status) {
+      const text = {
+        pending: `📣 ${a.by} has appealed. The court is looking for new evidence…`,
+        dismissed: a.reason === "contempt" ? `📣 ${a.by}'s appeal was dismissed (contempt of court).` : `📣 ${a.by}'s appeal was dismissed: nothing new.`,
+        affirmed: `📣 ${a.by} appealed, and the ruling was AFFIRMED.`,
+        reversed: `📣 ${a.by} appealed, and the ruling was REVERSED!`,
+      }[a.status];
+      return slot.replaceChildren(el("div", { class: "banner" }, el("div", { style: "font-weight:700" }, text), el("div", { class: "small muted", style: "margin-top:4px" }, `New evidence: ${a.evidence}`)));
+    }
+    const form = el("form", { class: "card", hidden: true, autocomplete: "off" });
+    const err = el("p", { class: "error", role: "alert" });
+    const party = el("select", { id: "appeal-party", required: true }, el("option", { value: "" }, "Who is appealing?"), ...a.parties.map((p) => el("option", { value: p }, p)));
+    const evidence = el("textarea", { id: "appeal-evidence", maxlength: "1500", required: true, placeholder: "What's NEW? The court only hears appeals with new facts or arguments." });
+    const submit = el("button", { class: "btn", type: "submit" }, "📣 File the appeal");
+    form.append(el("label", { for: "appeal-party" }, "Appeal"), party, el("label", { for: "appeal-evidence" }, "New evidence"), evidence, err, submit);
+    form.addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      err.textContent = "";
+      submit.disabled = true;
+      try {
+        await api(`/cases/${n}/appeal`, { json: { party: party.value, evidence: evidence.value } });
+        liveSession = true;
+        closedSeen = false;
+        thinking.hidden = false;
+        await refresh();
+        connect();
+      } catch (e) {
+        err.textContent = e.message;
+        submit.disabled = false;
+      }
+    });
+    const open = el("button", { class: "btn secondary", type: "button", onclick: () => { form.hidden = false; open.hidden = true; } }, "📣 Appeal (new evidence only)");
+    slot.replaceChildren(open, form);
   }
 
   function renderSummons(list) {
@@ -146,8 +186,7 @@
         el("div", {}, el("div", { class: "actor" }, e.actor), el("div", { class: "msg" }, e.message)),
       ),
     );
-    if (["ruling.decided", "opinion.written", "screening.done", "summons.issued", "testimony.received", "summons.expired"].includes(e.kind)) refresh().catch(() => {});
-    if (e.kind === "case.closed") onClosed();
+    if (["ruling.decided", "opinion.written", "screening.done", "summons.issued", "testimony.received", "summons.expired", "appeal.decided", "appeal.dismissed", "appeal.opinion.written"].includes(e.kind)) refresh().catch(() => {});
   }
 
   async function onClosed() {
@@ -212,7 +251,8 @@
     es.addEventListener("court", (m) => {
       addEvent(JSON.parse(m.data));
     });
-    es.addEventListener("end", () => es.close());
+    // The server says "end" once the case is really over (a replayed case.closed during an appeal isn't).
+    es.addEventListener("end", () => onClosed());
     es.addEventListener("timeout", () => {
       es.close();
       thinking.hidden = true;

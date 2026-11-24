@@ -19,6 +19,7 @@ import {
   deliberationQuestions,
   JUSTICE_KEYS,
   keepRelevant,
+  newEvidenceQuestion,
   precedentRelevanceQuestion,
   RECUSAL,
   sufficiencyQuestion,
@@ -115,6 +116,10 @@ export interface RulingData {
 type Actor = "clerk" | "bailiff" | "judge" | "court" | "executive";
 
 export class ApprovalError extends Error {}
+export class AppealError extends Error {}
+
+/** An appeal is heard only if it adds something new (SPEC §8.7). */
+export const APPEAL_NEW_EVIDENCE = 0.5;
 
 export const justiceName = (ctx: Pick<CourtContext, "cast">, key: JusticeKey) =>
   ({ justice_letter: ctx.cast.justices.letter, justice_heart: ctx.cast.justices.heart, justice_memory: ctx.cast.justices.memory })[key];
@@ -197,6 +202,137 @@ export class Hearings {
     return { id, number };
   }
 
+  // ---------- appeals (SPEC §8.7) ----------
+
+  /** Why this case can't be appealed, or null if it can. One appeal per case; never from contempt. */
+  appealBlocked(c: CaseRow): string | null {
+    if (c.status === "contempt") return "The court doesn't hear appeals from contempt.";
+    if (c.status === "appealed") return "The appeal is already being heard.";
+    if (c.status !== "ruled" && c.status !== "too_close") return "Only a decided case can be appealed.";
+    if (this.filings(c.id, true).some((f) => f.kind === "appeal")) return "This case has already had its appeal. One appeal per case!";
+    return null;
+  }
+
+  /** A party appeals with new evidence. The appeal hearing starts right away. */
+  fileAppeal(caseId: number, party: string, evidence: string): void {
+    const c = this.getCase(caseId);
+    if (!c) throw new AppealError("The court can't find that case.");
+    const blocked = this.appealBlocked(c);
+    if (blocked) throw new AppealError(blocked);
+    const pid = this.personId(party);
+    const side = pid && pid === c.plaintiff_id ? "plaintiff" : pid && pid === c.defendant_id ? "defendant" : null;
+    if (!side) throw new AppealError("Only the two parties can appeal.");
+    const author = side === "plaintiff" ? c.plaintiff : c.defendant;
+    this.ctx.db.transaction(() => {
+      this.ctx.db
+        .prepare("INSERT INTO filings(case_id, author, author_id, kind, body, created_at) VALUES (?, ?, ?, 'appeal', ?, ?)")
+        .run(c.id, author, pid, evidence, Date.now());
+      this.setStatus(c.id, "appealed");
+    })();
+    this.emit(c.id, "clerk", "appeal.filed", `${author} appeals! The court will look for new evidence.`, { by: author });
+    void this.start(c.id);
+  }
+
+  private async runAppeal(c: CaseRow): Promise<void> {
+    const code = await this.ctx.familyCode.refresh();
+    const caseType = (c.type as CaseType) ?? "complaint";
+    const original = this.data<RulingData>(c.id, "ruling.decided")!;
+
+    // The appeal filing gets the contempt screen too.
+    if (this.filings(c.id, true).some((f) => f.contempt_noul === null)) await this.screenMore(c);
+    const appeal = this.filings(c.id, true).find((f) => f.kind === "appeal")!;
+    if (appeal.struck) {
+      if (!this.lastEvent(c.id, "appeal.dismissed")) {
+        this.emit(c.id, "judge", "appeal.dismissed", "Appeal dismissed! Trying to sway the court doesn't work on appeal either.", { reason: "contempt" });
+      }
+      return this.closeAppeal(c, original, null);
+    }
+
+    // Is there anything new? (one noul; the original record vs. the appeal filing)
+    let fresh = this.data<{ p: number }>(c.id, "appeal.reviewed");
+    if (!fresh) {
+      const state = {
+        case: buildState({ case: c, filings: [] }).case,
+        original_record: this.filings(c.id).filter((f) => f.kind !== "appeal").map((f) => ({ author: f.author, kind: f.kind, body: f.body })),
+        new_filing: { author: appeal.author, kind: "appeal", body: appeal.body },
+      };
+      const res = await this.ctx.jev.ask(state, { new_evidence: newEvidenceQuestion() });
+      fresh = { p: res.answers.new_evidence.noul };
+      this.emit(
+        c.id,
+        "judge",
+        "appeal.reviewed",
+        fresh.p >= APPEAL_NEW_EVIDENCE ? "There's something new here. The panel will hear the appeal." : "The judge reads the appeal closely…",
+        fresh,
+      );
+    }
+    if (fresh.p < APPEAL_NEW_EVIDENCE) {
+      if (!this.lastEvent(c.id, "appeal.dismissed")) {
+        this.emit(c.id, "judge", "appeal.dismissed", "Appeal dismissed: nothing new. The original ruling stands.", { reason: "nothing_new", p: fresh.p });
+      }
+      return this.closeAppeal(c, original, null);
+    }
+
+    // Round 1: the whole record, new evidence included, same precedent as the trial.
+    let delib = this.data<DeliberationData>(c.id, "appeal.deliberation.done");
+    if (!delib) {
+      const check = this.data<PrecedentCheck>(c.id, "precedent.checked") ?? { candidates: [], kept: [] };
+      const precedent = check.kept;
+      const memoryRecusal = precedent.length ? undefined : check.candidates.length ? RECUSAL.noRelevantPrecedent : RECUSAL.noPrecedent;
+      const questions = deliberationQuestions({ case: c, caseType, hasPrecedent: precedent.length > 0, sentencingLevels: code.sentencing });
+      const state = buildState({
+        case: { ...c, type: caseType },
+        filings: this.filings(c.id).map((f) => ({ author: f.author, kind: f.kind, body: f.body })),
+        familyCode: code.text,
+        precedent,
+        computedFacts: { ...this.computedFacts(c), round: "appeal" },
+      });
+      this.emit(c.id, "judge", "appeal.deliberation.started", "The justices take a fresh look at the whole case…");
+      const res = await this.ctx.jev.ask(state, questions);
+      delib = { model: res.model, answers: res.answers as Record<string, unknown>, precedent, memoryRecusal };
+      this.emit(c.id, "judge", "appeal.deliberation.done", "The justices have voted on the appeal.", delib);
+    }
+
+    let decided = this.data<RulingData & { result: "affirmed" | "reversed" }>(c.id, "appeal.decided");
+    if (!decided) {
+      const r1 = this.decideRuling(c, caseType, code, delib);
+      const key = (r: RulingData) => (r.kind === "too_close" ? "compromise" : r.decision?.outcome ?? r.kind);
+      const result = key(r1) === key(original) ? "affirmed" : "reversed";
+      decided = { ...r1, result };
+      this.saveRuling(c, r1, 1);
+      this.emit(c.id, "judge", "appeal.decided", `On appeal, the panel ${result === "affirmed" ? "AFFIRMS" : "REVERSES"}. ${this.rulingMessage(c, caseType, r1)}`, decided);
+    }
+
+    if (!this.lastEvent(c.id, "appeal.opinion.written")) {
+      const facts = this.opinionFacts(c, code, decided, null, 1);
+      const op = await writeOpinion(this.ctx.ollama, this.ctx.persona(), facts, this.ctx.log);
+      this.ctx.db
+        .prepare("UPDATE rulings SET opinion_md = ?, bench_verdict = ?, cited_articles_json = ? WHERE case_id = ? AND round = 1")
+        .run(op.opinion_md, op.bench_verdict, JSON.stringify(op.cited_articles), c.id);
+      this.emit(c.id, "clerk", "appeal.opinion.written", "The clerk reads the opinion on appeal.", op);
+    }
+    return this.closeAppeal(c, original, decided);
+  }
+
+  private async closeAppeal(c: CaseRow, original: RulingData, decided: (RulingData & { result: string }) | null) {
+    const id = c.id;
+    if (this.lastEvent(id, "appeal.closed")) return;
+    const ruling = decided ?? original;
+    const status: CaseStatus = ruling.kind === "too_close" ? "too_close" : "ruled";
+    this.ctx.db.prepare("UPDATE cases SET status = ?, ruled_at = ? WHERE id = ?").run(status, Date.now(), id);
+    const granted = ruling.kind === "ruled" && ruling.decision?.outcome === "plaintiff" && c.type === "petition";
+    if (granted) this.ctx.db.prepare("UPDATE cases SET approval = 'pending' WHERE id = ? AND approval IS NULL").run(id);
+
+    await this.syncRecord(id);
+    const L = labelsFor(this.ctx.people, this.getCase(id)!);
+    const headline = decided
+      ? `On appeal, the court ${decided.result === "affirmed" ? "AFFIRMED" : "REVERSED"} the ruling. ${decided.winner ? `It's now for ${L.relabel(decided.winner)}.` : "It's too close to call, so the court orders a compromise."}`
+      : "The appeal was dismissed, so the original ruling stands.";
+    await this.sendNotices(id, ruling, { headline, kind: "appeal.notices.sent" });
+    if (decided) await this.recordVoice(id, 1);
+    this.emit(id, "bailiff", "appeal.closed", "BANG! The appeal is decided. Court is adjourned.", { status, result: decided?.result ?? "dismissed" });
+  }
+
   // ---------- petitions ----------
 
   /** The Executive Branch (a parent) approves or denies a granted petition. */
@@ -219,37 +355,38 @@ export class Hearings {
 
   // ---------- the spoken verdict (ElevenLabs) ----------
 
-  private async recordVoice(caseId: number) {
+  private async recordVoice(caseId: number, round = 0) {
     const c = this.getCase(caseId)!;
-    const r = this.ctx.db.prepare("SELECT bench_verdict FROM rulings WHERE case_id = ? ORDER BY round DESC LIMIT 1").get(caseId) as
+    const r = this.ctx.db.prepare("SELECT bench_verdict FROM rulings WHERE case_id = ? AND round = ?").get(caseId, round) as
       | { bench_verdict: string | null }
       | undefined;
     if (!r?.bench_verdict) return;
-    const result = await this.ctx.voice.speak(c.number, r.bench_verdict);
+    const prefix = round ? "appeal." : "";
+    const result = await this.ctx.voice.speak(c.number, r.bench_verdict, round);
     if (result.status === "ready") {
-      this.ctx.db.prepare("UPDATE rulings SET audio_path = ? WHERE case_id = ?").run(result.path, caseId);
-      this.emit(caseId, "judge", "voice.ready", "The judge clears their throat…");
+      this.ctx.db.prepare("UPDATE rulings SET audio_path = ? WHERE case_id = ? AND round = ?").run(result.path, caseId, round);
+      this.emit(caseId, "judge", `${prefix}voice.ready`, "The judge clears their throat…", { round });
     } else if (result.status === "no_budget") {
-      this.emit(caseId, "judge", "voice.unavailable", "The judge has lost their voice for today, so the verdict is in writing.", { reason: "no_budget" });
+      this.emit(caseId, "judge", `${prefix}voice.unavailable`, "The judge has lost their voice for today, so the verdict is in writing.", { reason: "no_budget", round });
     } else if (result.status === "failed") {
-      this.emit(caseId, "judge", "voice.unavailable", "The judge's microphone isn't working right now, so the verdict is in writing.", { reason: "failed" });
+      this.emit(caseId, "judge", `${prefix}voice.unavailable`, "The judge's microphone isn't working right now, so the verdict is in writing.", { reason: "failed", round });
     }
   }
 
   // ---------- notices (AgentMail) ----------
 
-  private async sendNotices(caseId: number, ruling: RulingData) {
+  private async sendNotices(caseId: number, ruling: RulingData, opts: { headline?: string; kind?: string } = {}) {
     const c = this.getCase(caseId)!;
     const L = labelsFor(this.ctx.people, c);
     const url = `${this.ctx.cfg.PUBLIC_BASE_URL.replace(/\/+$/, "")}/cases/${c.number}`;
     const label = caseLabel(c.number);
     const title = L.relabel(c.title);
-    const headline =
-      ruling.kind === "too_close"
+    const headline = opts.headline ??
+      (ruling.kind === "too_close"
         ? "It was too close to call, so the court ordered a compromise."
         : ruling.kind === "contempt"
           ? `${L.relabel(ruling.contemnor ?? "")} was held in contempt of court.`
-          : `The court ruled for ${L.relabel(ruling.winner ?? "")}${ruling.decision?.vote ? ` (${ruling.decision.vote})` : ""}.${ruling.sentenceText ? ` Sentence: ${ruling.sentenceText}.` : ""}`;
+          : `The court ruled for ${L.relabel(ruling.winner ?? "")}${ruling.decision?.vote ? ` (${ruling.decision.vote})` : ""}.${ruling.sentenceText ? ` Sentence: ${ruling.sentenceText}.` : ""}`);
     const sent: string[] = [];
     for (const pid of [...new Set([c.plaintiff_id, c.defendant_id].filter(Boolean) as string[])]) {
       const person = this.ctx.people.find((p) => p.id === pid);
@@ -260,7 +397,7 @@ export class Hearings {
         : rulingLetter({ court: this.ctx.cast.court, alias: person.alias, caseLabel: label, title, headline, url });
       if ((await this.ctx.mailer.send(person, l)) === "sent") sent.push(person.alias);
     }
-    if (sent.length) this.emit(caseId, "clerk", "notices.sent", `The clerk emails notice of the ruling to ${sent.join(" and ")}.`, { sent });
+    if (sent.length) this.emit(caseId, "clerk", opts.kind ?? "notices.sent", `The clerk emails notice of the ruling to ${sent.join(" and ")}.`, { sent });
   }
 
   // ---------- the record (Box) ----------
@@ -354,6 +491,7 @@ export class Hearings {
     const ctx = this.ctx;
     let c = this.getCase(caseId);
     if (!c || FINAL_STATUSES.has(c.status)) return;
+    if (c.status === "appealed") return this.runAppeal(c);
     const label = caseLabel(c.number);
 
     // 1. All rise
@@ -669,6 +807,30 @@ export class Hearings {
   }
 
   private rule(c: CaseRow, caseType: CaseType, code: FamilyCode, delib: DeliberationData): RulingData {
+    const data = this.decideRuling(c, caseType, code, delib);
+    this.saveRuling(c, data);
+    this.emit(c.id, "judge", "ruling.decided", this.rulingMessage(c, caseType, data), data);
+    return data;
+  }
+
+  private rulingMessage(c: CaseRow, caseType: CaseType, data: RulingData): string {
+    const decision = data.decision!;
+    const { winner, confidencePct, sentenceText } = data;
+    let msg: string;
+    if (decision.status === "ruled") {
+      const recused = decision.seats.some((s) => s.status === "recused");
+      msg = `The panel rules ${decision.vote}${recused ? " (one justice recused)" : ""} for ${winner}. The court is ${confidencePct}% sure.`;
+      if (caseType === "petition" && decision.outcome === "plaintiff") msg += " Recommended to the Executive Branch (a parent) for approval.";
+      if (sentenceText) msg += ` Sentence: ${sentenceText}.`;
+    } else {
+      const lean = decision.lean ? `leaning ${decision.lean === "plaintiff" ? c.plaintiff : c.defendant} ${decision.vote}` : `split ${decision.vote}`;
+      msg = `Too close to call (${lean}, only ${confidencePct}% sure). The court will order a compromise.`;
+    }
+    return msg;
+  }
+
+  /** SPEC §8.4 applied to a deliberation (pure: no writes). */
+  private decideRuling(c: CaseRow, caseType: CaseType, code: FamilyCode, delib: DeliberationData): RulingData {
     const answers = delib.answers as Record<string, any>;
     const justices: Partial<Record<JusticeKey, ChoiceAnswer>> = {};
     for (const k of JUSTICE_KEYS) if (answers[k]) justices[k] = answers[k];
@@ -685,7 +847,7 @@ export class Hearings {
     const winner = decision.outcome ? (decision.outcome === "plaintiff" ? c.plaintiff : c.defendant) : null;
     const sentenceText = decision.sentenceLevel !== null ? code.sentencing[decision.sentenceLevel] : null;
     const confidencePct = Math.round(decision.caseConfidence * 100);
-    const data: RulingData = {
+    return {
       kind: decision.status,
       decision,
       winner,
@@ -693,20 +855,6 @@ export class Hearings {
       sentenceText,
       confidencePct,
     };
-    this.saveRuling(c, data);
-
-    let msg: string;
-    if (decision.status === "ruled") {
-      const recused = decision.seats.some((s) => s.status === "recused");
-      msg = `The panel rules ${decision.vote}${recused ? " (one justice recused)" : ""} for ${winner}. The court is ${confidencePct}% sure.`;
-      if (caseType === "petition" && decision.outcome === "plaintiff") msg += " Recommended to the Executive Branch (a parent) for approval.";
-      if (sentenceText) msg += ` Sentence: ${sentenceText}.`;
-    } else {
-      const lean = decision.lean ? `leaning ${decision.lean === "plaintiff" ? c.plaintiff : c.defendant} ${decision.vote}` : `split ${decision.vote}`;
-      msg = `Too close to call (${lean}, only ${confidencePct}% sure). The court will order a compromise.`;
-    }
-    this.emit(c.id, "judge", "ruling.decided", msg, data);
-    return data;
   }
 
   private async contemptRuling(c: CaseRow, code: FamilyCode, filing: FilingRow): Promise<RulingData> {
@@ -727,17 +875,17 @@ export class Hearings {
     return data;
   }
 
-  private saveRuling(c: CaseRow, r: RulingData) {
+  private saveRuling(c: CaseRow, r: RulingData, round = 0) {
     const d = r.decision;
     const outcome = r.kind === "contempt" ? "contempt" : d?.outcome ?? "compromise";
     const panel = d ? d.seats.map((s) => ({ ...s, name: justiceName(this.ctx, s.key) })) : null;
     this.ctx.db
       .prepare(
         `INSERT INTO rulings(case_id, round, panel_json, outcome, vote, case_confidence, sentence_level, sentence_text, created_at)
-         VALUES (?, 0, ?, ?, ?, ?, ?, ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(case_id, round) DO NOTHING`,
       )
-      .run(c.id, panel ? JSON.stringify(panel) : null, outcome, d?.vote ?? null, d?.caseConfidence ?? null, r.sentenceLevel, r.sentenceText, Date.now());
+      .run(c.id, round, panel ? JSON.stringify(panel) : null, outcome, d?.vote ?? null, d?.caseConfidence ?? null, r.sentenceLevel, r.sentenceText, Date.now());
   }
 
   // Steps 7–9: opinion, record, gavel
@@ -769,7 +917,7 @@ export class Hearings {
     }
   }
 
-  private opinionFacts(c: CaseRow, code: FamilyCode, r: RulingData, inAbsentia: string | null): OpinionFacts {
+  private opinionFacts(c: CaseRow, code: FamilyCode, r: RulingData, inAbsentia: string | null, round = 0): OpinionFacts {
     const d = r.decision;
     const sideName = (s: Side) => (s === "plaintiff" ? c.plaintiff : c.defendant);
     const justices =
@@ -800,6 +948,21 @@ export class Hearings {
       inAbsentia: inAbsentia ?? undefined,
       articles: code.articles.map((a) => ({ number: a.number, title: a.title })),
       filings: this.filings(c.id).map((f) => ({ author: f.author, kind: f.kind, body: f.body })),
+      appeal: round === 1 ? this.appealFacts(c, r) : undefined,
+    };
+  }
+
+  private appealFacts(c: CaseRow, r: RulingData): OpinionFacts["appeal"] {
+    const original = this.data<RulingData>(c.id, "ruling.decided");
+    const filing = this.filings(c.id).find((f) => f.kind === "appeal");
+    const describe = (x?: RulingData | null) =>
+      !x ? "unknown" : x.kind === "too_close" ? "too close to call (compromise)" : x.winner ? `for ${x.winner}` : x.kind;
+    const key = (x?: RulingData | null) => (x?.kind === "too_close" ? "compromise" : x?.decision?.outcome ?? x?.kind);
+    return {
+      by: filing?.author ?? "",
+      evidence: filing?.body ?? "",
+      original: describe(original),
+      result: key(original) === key(r) ? "affirmed" : "reversed",
     };
   }
 }
