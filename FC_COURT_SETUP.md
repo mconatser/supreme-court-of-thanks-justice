@@ -23,7 +23,7 @@ The connectors' current access policy (name prefix `fc-`) already covers `fc-cou
 
 ## 2. Get the code onto it
 
-The repo is private until Sunday, so the Sprite needs read access to GitHub. Open a shell on it:
+The repo stays private until the release on Wednesday night, so the Sprite needs read access to GitHub. Open a shell on it:
 
 ```bash
 sprite console -s fc-court
