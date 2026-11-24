@@ -1,0 +1,5 @@
+{
+  "opinion_md": "**Opinion of the Court**\n\nThe court has heard the matter and finds for **{{winner}}**. The court is {{percent}} sure. {{loser}} argued well, and the court thanks everyone for keeping it civil.\n\nSo ordered.",
+  "bench_verdict": "The court finds for {{winner}}. Court is adjourned!",
+  "cited_articles": [1]
+}

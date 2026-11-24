@@ -1,0 +1,87 @@
+{
+  "_about": "Stub-mode Jev. Answers depend on keywords in the state. Add any trick that gets past the real contempt screen here AND to the contempt criteria in src/shared/panel.ts.",
+  "noise": 0.03,
+  "contempt": {
+    "high": [
+      "dessert",
+      "i'll give you",
+      "i will give you",
+      "i'll pay",
+      "real judge",
+      "i am the judge",
+      "ignore your rules",
+      "ignore the rules",
+      "ignore the family code",
+      "i order the court",
+      "you have to rule",
+      "or else",
+      "bribe"
+    ],
+    "medium": [
+      "best judge ever",
+      "smartest judge",
+      "your honor is so"
+    ],
+    "values": {
+      "high": 0.95,
+      "medium": 0.5,
+      "low": 0.04
+    }
+  },
+  "case_type": {
+    "petition": [
+      "can i",
+      "should be allowed",
+      "change the rule",
+      "i would like permission",
+      "petition",
+      "bedtime"
+    ],
+    "declaration": [
+      "is a sandwich",
+      "declares",
+      "declare",
+      "which is better",
+      "settle the question"
+    ]
+  },
+  "sufficient": {
+    "both_heard": 0.88,
+    "one_heard": 0.4
+  },
+  "justices": {
+    "close": [
+      "at the same time",
+      "exactly the same time",
+      "we both called it"
+    ],
+    "defendant": [
+      "never happened",
+      "i didn't do it",
+      "made it up"
+    ],
+    "values": {
+      "clear": 0.82,
+      "close": 0.51
+    }
+  },
+  "sentence": {
+    "serious": [
+      "on purpose",
+      "again",
+      "every single"
+    ],
+    "values": {
+      "default": 1.2,
+      "serious": 2.4
+    }
+  },
+  "new_evidence": {
+    "default": 0.2
+  },
+  "precedent": {
+    "min_shared_words": 3,
+    "relevant": 0.88,
+    "irrelevant": 0.08
+  }
+}

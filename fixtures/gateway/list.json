@@ -1,0 +1,23 @@
+{
+  "available": [
+    { "provider": "box", "display_name": "Box", "description": "Read, download and upload files", "default_scopes": ["root_readwrite"] }
+  ],
+  "connections": [
+    {
+      "id": "conn_ollama_example",
+      "provider": "ollama",
+      "display_name": "Ollama",
+      "access_policy": { "name_prefix": "fc-" },
+      "gateway_base_url": "https://api.sprites.dev/v1/gateway/ollama/conn_ollama_example",
+      "usage_snippet": "curl -X POST \"https://api.sprites.dev/v1/gateway/ollama/conn_ollama_example/api/chat\""
+    },
+    {
+      "id": "conn_typesafe_example",
+      "provider": "typesafe",
+      "display_name": "TypeSafeAI",
+      "access_policy": { "name_prefix": "fc-" },
+      "gateway_base_url": "https://api.sprites.dev/v1/gateway/typesafe/conn_typesafe_example/",
+      "usage_snippet": "export TYPESAFE_BASE_URL=\"https://api.sprites.dev/v1/gateway/typesafe/conn_typesafe_example\""
+    }
+  ]
+}

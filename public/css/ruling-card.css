@@ -1,0 +1,40 @@
+/*
+ * The ruling card. PLACEHOLDER: Max designs the real one (MISSIONS.md, Mission 6).
+ * Everything a card needs is here: case, three justice seats with %, outcome + vote,
+ * confidence meter, sentence, cited articles, and (Phase 2) a "Hear the verdict" button.
+ */
+.ruling-card {
+  background: var(--card);
+  border: 3px double var(--brass);
+  border-radius: 18px;
+  padding: 18px 16px;
+  box-shadow: var(--shadow);
+  margin: 14px 0;
+  text-align: center;
+}
+.ruling-card .rc-case { font: 700 0.85rem/1.2 ui-monospace, monospace; color: var(--muted); letter-spacing: 0.06em; }
+.ruling-card .rc-title { font: 700 1.25rem/1.25 Georgia, serif; margin: 4px 0 12px; }
+.ruling-card .rc-outcome { font: 800 1.45rem/1.2 Georgia, serif; margin: 8px 0 2px; }
+.ruling-card .rc-outcome.contempt { color: var(--bad); }
+.ruling-card .rc-outcome.too_close { color: var(--info); }
+.ruling-card .rc-vote { color: var(--muted); font-weight: 650; }
+
+.rc-seats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 14px 0; }
+.rc-seat { border: 1px solid var(--line); border-radius: 12px; padding: 10px 6px; background: var(--paper); }
+.rc-seat .icon { font-size: 1.6rem; }
+.rc-seat .name { font-size: 0.78rem; font-weight: 700; line-height: 1.2; min-height: 2.4em; }
+.rc-seat .pick { font-weight: 800; font-size: 0.9rem; margin-top: 4px; overflow-wrap: anywhere; }
+.rc-seat .pct { font: 800 1.2rem/1.2 ui-monospace, monospace; }
+.rc-seat.recused { opacity: 0.65; border-style: dashed; }
+.rc-seat.recused .pick { font-weight: 600; font-size: 0.78rem; font-style: italic; }
+.rc-seat .cites { font-size: 0.72rem; color: var(--muted); margin-top: 6px; line-height: 1.25; overflow-wrap: anywhere; }
+.rc-seat.winner { border-color: var(--good); border-width: 2px; }
+
+.rc-meter { margin: 14px 0 6px; text-align: left; }
+.rc-meter .label { display: flex; justify-content: space-between; font-size: 0.85rem; font-weight: 700; }
+.rc-meter .track { height: 14px; background: var(--line); border-radius: 999px; overflow: hidden; margin-top: 4px; }
+.rc-meter .fill { height: 100%; background: linear-gradient(90deg, var(--warn), var(--good)); border-radius: 999px; transition: width 0.8s ease-out; }
+
+.rc-sentence { margin-top: 12px; padding: 10px; border-radius: 10px; background: color-mix(in srgb, var(--bad) 9%, var(--card)); font-weight: 650; }
+.rc-articles { margin-top: 10px; font-size: 0.88rem; color: var(--muted); }
+.rc-recommend { margin-top: 10px; font-size: 0.9rem; font-style: italic; }

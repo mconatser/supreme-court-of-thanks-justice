@@ -1,0 +1,146 @@
+/* Family Court: phone first, big buttons, readable transcript. */
+:root {
+  --paper: #f7f1e3;
+  --card: #fffaf0;
+  --ink: #2b2118;
+  --muted: #6f6152;
+  --line: #e2d6bf;
+  --wood: #6b3f1d;
+  --wood-ink: #fff7ea;
+  --brass: #b8862b;
+  --good: #2f7d4f;
+  --warn: #b26a00;
+  --bad: #b23a2b;
+  --info: #2f5f8f;
+  --radius: 14px;
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.06), 0 4px 14px rgb(60 40 10 / 0.08);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #1b1714;
+    --card: #26201b;
+    --ink: #f1e8da;
+    --muted: #b5a691;
+    --line: #3d342b;
+    --wood: #4a2c15;
+    --wood-ink: #fff2dc;
+    --brass: #d7a648;
+    --good: #5fbf85;
+    --warn: #e0a043;
+    --bad: #ec7a6b;
+    --info: #7fb0e0;
+    --shadow: 0 1px 2px rgb(0 0 0 / 0.4);
+    color-scheme: dark;
+  }
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font: 17px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+a { color: var(--info); }
+
+.bar {
+  background: var(--wood);
+  color: var(--wood-ink);
+  padding: calc(env(safe-area-inset-top, 0px) + 12px) 16px 12px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+.bar a { color: inherit; text-decoration: none; }
+.bar .seal { font-size: 1.5rem; }
+.bar h1 { font: 700 1.15rem/1.2 Georgia, "Times New Roman", serif; margin: 0; flex: 1; letter-spacing: 0.01em; }
+.bar .back { font-size: 0.95rem; opacity: 0.9; }
+
+main { width: 100%; max-width: 680px; margin: 0 auto; padding: 16px; flex: 1; }
+
+h2 { font: 700 1.3rem/1.25 Georgia, serif; margin: 8px 0 12px; }
+.muted { color: var(--muted); }
+.small { font-size: 0.88rem; }
+
+.card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; box-shadow: var(--shadow); margin-bottom: 14px; }
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  min-height: 52px; padding: 12px 20px;
+  border-radius: 12px; border: 0;
+  background: var(--brass); color: #1e1406;
+  font: 700 1.05rem/1 system-ui, sans-serif;
+  text-decoration: none; cursor: pointer;
+  width: 100%;
+}
+.btn:disabled { opacity: 0.55; cursor: progress; }
+.btn.secondary { background: transparent; color: var(--ink); border: 2px solid var(--line); }
+
+label { display: block; font-weight: 650; margin: 14px 0 6px; }
+input, select, textarea {
+  width: 100%; font: inherit; color: inherit;
+  background: var(--paper); border: 2px solid var(--line); border-radius: 10px;
+  padding: 12px; min-height: 50px;
+}
+textarea { min-height: 120px; resize: vertical; }
+input:focus, select:focus, textarea:focus { outline: 3px solid color-mix(in srgb, var(--brass) 55%, transparent); border-color: var(--brass); }
+.counter { text-align: right; font-size: 0.82rem; color: var(--muted); margin-top: 4px; }
+.counter.over { color: var(--bad); font-weight: 700; }
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 420px) { .row2 { grid-template-columns: 1fr; } }
+
+.banner { border-radius: 12px; padding: 12px 14px; margin-bottom: 14px; border: 1px solid var(--line); background: var(--card); }
+.banner.recess { border-color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, var(--card)); font-weight: 650; }
+.banner.note { border-color: color-mix(in srgb, var(--info) 40%, var(--line)); }
+.error { color: var(--bad); font-weight: 650; min-height: 1.4em; margin: 10px 0 0; }
+
+/* Docket */
+.docket { list-style: none; padding: 0; margin: 0; }
+.docket a { display: block; text-decoration: none; color: inherit; }
+.docket li { margin-bottom: 10px; }
+.docket .case { display: flex; flex-direction: column; gap: 4px; }
+.docket .case-top { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.docket .num { font: 700 0.85rem/1 ui-monospace, monospace; color: var(--muted); }
+.docket .title { font-weight: 700; font-size: 1.05rem; }
+
+.chip { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.02em; white-space: nowrap; border: 1px solid currentColor; }
+.chip.ruled { color: var(--good); }
+.chip.too_close { color: var(--info); }
+.chip.contempt { color: var(--bad); }
+.chip.open { color: var(--warn); }
+
+/* Transcript */
+.transcript { list-style: none; padding: 0; margin: 0; }
+.transcript li { display: grid; grid-template-columns: 2.2rem 1fr; gap: 8px; padding: 10px 0; border-bottom: 1px dashed var(--line); animation: fadein 0.35s ease-out; }
+.transcript li:last-child { border-bottom: 0; }
+.transcript .who { font-size: 1.4rem; line-height: 1.2; text-align: center; }
+.transcript .actor { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 700; }
+.transcript .kind-contempt\.found .msg, .transcript .kind-contempt\.warning .msg { color: var(--bad); font-weight: 650; }
+.transcript .kind-court\.recess .msg, .transcript .kind-court\.trouble .msg { color: var(--warn); font-weight: 650; }
+.transcript .kind-case\.closed .msg { font-weight: 800; letter-spacing: 0.02em; }
+.thinking { color: var(--muted); font-style: italic; padding: 10px 0 0 2.7rem; }
+.thinking::after { content: "…"; animation: dots 1.2s steps(4) infinite; display: inline-block; width: 1.2em; overflow: hidden; vertical-align: bottom; }
+@keyframes dots { from { width: 0; } to { width: 1.2em; } }
+@keyframes fadein { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+.filing { border-left: 4px solid var(--line); padding: 4px 0 4px 12px; margin: 10px 0; }
+.filing .by { font-size: 0.82rem; color: var(--muted); font-weight: 650; }
+.filing.struck .body { text-decoration: line-through; opacity: 0.6; }
+.filing.struck .by::after { content: " · STRUCK FROM THE RECORD"; color: var(--bad); }
+
+.opinion p { margin: 0 0 10px; }
+
+footer { text-align: center; color: var(--muted); font-size: 0.8rem; padding: 18px 16px calc(env(safe-area-inset-bottom, 0px) + 18px); }
+
+.gavel-flash { animation: gavel 0.6s ease-out; }
+@keyframes gavel { 0% { transform: rotate(-35deg); } 40% { transform: rotate(8deg); } 100% { transform: none; } }
+
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; } }

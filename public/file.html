@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="stylesheet" href="/css/court.css"><title>Family Court · File a case</title></head>
+<body>
+<header class="bar"><a class="back" href="/">‹ Docket</a><h1 data-court-name>Family Court</h1></header>
+<main>
+  <h2>File a case</h2>
+  <div id="banners"></div>
+  <form id="file" class="card" autocomplete="off">
+    <div class="row2">
+      <div><label for="plaintiff">Who's bringing the case?</label><select id="plaintiff" required></select></div>
+      <div><label for="defendant">Against whom?</label><select id="defendant" required></select></div>
+    </div>
+    <label for="title">Case name <span class="muted small">(optional)</span></label>
+    <input id="title" maxlength="120" placeholder="e.g. The Great Front Seat Dispute">
+    <label for="claim">What happened?</label>
+    <textarea id="claim" data-max="1500" required placeholder="Tell the court your side. Stick to the facts (and the Family Code!)."></textarea>
+    <div class="counter" data-for="claim"></div>
+    <label for="relief">What do you want the court to do?</label>
+    <textarea id="relief" data-max="300" required style="min-height:70px" placeholder="e.g. I get the front seat for a week."></textarea>
+    <div class="counter" data-for="relief"></div>
+    <label for="response">The other side <span class="muted small">(optional, if they're here to answer)</span></label>
+    <textarea id="response" data-max="1500" placeholder="Hand the phone over and let them tell their side."></textarea>
+    <div class="counter" data-for="response"></div>
+    <p class="small muted">⚠️ Bribing, threatening or bossing the judge around is contempt of court. Argue your case!</p>
+    <p class="error" id="err" role="alert"></p>
+    <button class="btn" type="submit" id="submit">🔨 File with the court</button>
+  </form>
+</main>
+<footer>Voice by ElevenLabs · Decisions by TypeSafe Jev · Running on Fly.io Sprites</footer>
+<script src="/js/common.js"></script>
+<script src="/js/file.js"></script>
+</body></html>

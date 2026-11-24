@@ -1,0 +1,154 @@
+"use strict";
+(async function () {
+  const n = Number(location.pathname.split("/")[2]);
+  const transcript = document.getElementById("transcript");
+  const thinking = document.getElementById("thinking");
+  const note = document.getElementById("stream-note");
+  const cardSlot = document.getElementById("card-slot");
+  const ICONS = { clerk: "📜", bailiff: "👮", judge: "👩‍⚖️", court: "🏛️" };
+  const SEAT_ICONS = { justice_letter: "📖", justice_heart: "❤️", justice_memory: "🧠" };
+  let lastId = 0;
+  let es = null;
+  let closedSeen = false;
+
+  async function refresh() {
+    const c = await api(`/api/cases/${n}`);
+    document.getElementById("case-title").textContent = `${c.label}: ${c.title}`;
+    document.getElementById("header").replaceChildren(
+      el("h2", { id: "case-title" }, `${c.label}: ${c.title}`),
+      el("p", { class: "muted small", style: "margin-top:-6px" }, statusChip(c.status), "  ", `${c.plaintiff} v. ${c.defendant}`, c.type ? ` · ${c.type}` : ""),
+    );
+    renderFilings(c.filings);
+    renderRuling(c);
+    return c;
+  }
+
+  function renderFilings(filings) {
+    document.getElementById("filings").replaceChildren(
+      ...filings.map((f) =>
+        el("div", { class: `filing${f.struck ? " struck" : ""}` }, el("div", { class: "by" }, `${f.author} · ${f.kind}`), el("div", { class: "body" }, f.body)),
+      ),
+    );
+  }
+
+  function renderRuling(c) {
+    const r = c.ruling;
+    if (!r) return cardSlot.replaceChildren();
+    let outcome, outcomeClass = "";
+    if (r.outcome === "contempt") { outcome = `${r.contemnor || "Someone"} is in CONTEMPT!`; outcomeClass = "contempt"; }
+    else if (r.outcome === "compromise") { outcome = "Too close to call: compromise!"; outcomeClass = "too_close"; }
+    else outcome = `Ruling for ${r.winner}`;
+
+    const seats = (r.seats || []).map((s) =>
+      el(
+        "div",
+        { class: `rc-seat ${s.status}${s.status === "voted" && s.side === r.outcome ? " winner" : ""}` },
+        el("div", { class: "icon" }, SEAT_ICONS[s.key] || "⚖️"),
+        el("div", { class: "name" }, s.name),
+        s.status === "voted"
+          ? [
+              el("div", { class: "pick" }, s.party),
+              el("div", { class: "pct" }, `${s.pct}%`),
+              s.cites && s.cites.length
+                ? el("div", { class: "cites" }, "Cites ", s.cites.map((k) => `${k.label}${k.title ? `: ${k.title}` : ""}`).join("; "))
+                : null,
+            ]
+          : el("div", { class: "pick" }, s.reason),
+      ),
+    );
+
+    const pct = r.confidencePct;
+    const card = el(
+      "div",
+      { class: "ruling-card" },
+      el("div", { class: "rc-case" }, c.label),
+      el("div", { class: "rc-title" }, c.title),
+      seats.length ? el("div", { class: "rc-seats" }, seats) : null,
+      el("div", { class: `rc-outcome ${outcomeClass}` }, outcome),
+      r.outcome === "compromise"
+        ? el("div", { class: "rc-vote" }, r.lean ? `Leaning ${r.lean.party} ${r.lean.vote}` : `Split ${r.vote}`)
+        : r.vote ? el("div", { class: "rc-vote" }, `Vote ${r.vote}`) : null,
+      pct != null && r.outcome !== "contempt"
+        ? el(
+            "div",
+            { class: "rc-meter" },
+            el("div", { class: "label" }, el("span", {}, "How sure the court is"), el("span", {}, `${pct}%`)),
+            el("div", { class: "track" }, el("div", { class: "fill", style: `width:${pct}%` })),
+          )
+        : null,
+      r.sentence ? el("div", { class: "rc-sentence" }, `Sentence: ${r.sentence.text}`) : null,
+      r.petitionRecommended ? el("div", { class: "rc-recommend" }, "Recommended to the Executive Branch (a parent) for approval.") : null,
+      r.citedArticles && r.citedArticles.length
+        ? el("div", { class: "rc-articles" }, "Cites ", r.citedArticles.map((a) => `Article ${a.number}${a.title ? ` (${a.title})` : ""}`).join(", "))
+        : null,
+    );
+    cardSlot.replaceChildren(card);
+
+    if (r.opinionMd) {
+      document.getElementById("opinion-card").hidden = false;
+      document.getElementById("opinion").innerHTML = renderMarkdown(r.opinionMd);
+    }
+  }
+
+  function addEvent(e) {
+    if (e.id <= lastId) return;
+    lastId = e.id;
+    transcript.append(
+      el(
+        "li",
+        { class: `kind-${e.kind}` },
+        el("div", { class: "who" }, ICONS[e.actor] || "•"),
+        el("div", {}, el("div", { class: "actor" }, e.actor), el("div", { class: "msg" }, e.message)),
+      ),
+    );
+    if (["ruling.decided", "opinion.written", "screening.done"].includes(e.kind)) refresh().catch(() => {});
+    if (e.kind === "case.closed") onClosed();
+  }
+
+  function onClosed() {
+    closedSeen = true;
+    thinking.hidden = true;
+    if (es) es.close();
+    refresh().catch(() => {});
+    playGavel();
+  }
+
+  function playGavel() {
+    const seal = document.querySelector(".bar .seal, .bar .back");
+    if (seal) { seal.classList.remove("gavel-flash"); void seal.offsetWidth; seal.classList.add("gavel-flash"); }
+    if (!liveSession) return; // don't bang the gavel when just reopening an old case
+    const audio = new Audio("/sfx/gavel.mp3");
+    audio.play().catch(() => { /* no gavel sound yet, or autoplay blocked */ });
+  }
+
+  let liveSession = false;
+
+  function connect() {
+    note.textContent = "";
+    es = new EventSource(`/cases/${n}/stream?after=${lastId}`);
+    es.addEventListener("court", (m) => {
+      addEvent(JSON.parse(m.data));
+    });
+    es.addEventListener("end", () => es.close());
+    es.addEventListener("timeout", () => {
+      es.close();
+      thinking.hidden = true;
+      note.replaceChildren("The court stopped streaming to save power. ", el("a", { href: "#", onclick: (ev) => { ev.preventDefault(); thinking.hidden = false; connect(); } }, "Tap to reconnect"));
+    });
+    es.onerror = () => {
+      if (closedSeen) es.close();
+      // otherwise EventSource reconnects by itself (with Last-Event-ID)
+    };
+  }
+
+  try {
+    const c = await refresh();
+    const d = await api("/api/docket").catch(() => null);
+    if (d) setCourtName(d.cast && d.cast.court);
+    thinking.hidden = c.final;
+    liveSession = !c.final; // only bang the gavel for hearings watched live
+    connect();
+  } catch (e) {
+    document.getElementById("case-title").textContent = e.message;
+  }
+})();

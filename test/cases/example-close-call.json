@@ -1,0 +1,13 @@
+{
+  "_placeholder": "Example by Claude: a deliberately close case. Max: replace it with a real tie-breaker from your family!",
+  "title": "Pip v. Sky Sister",
+  "plaintiff": "Pip",
+  "defendant": "Sky Sister",
+  "type_hint": "complaint",
+  "claim": "We both called shotgun for the front seat at exactly the same time when we walked out the door. I think I should get it because I was closer to the car.",
+  "relief": "I get the front seat today.",
+  "filings": [
+    { "author": "Sky Sister", "kind": "response", "body": "We both called it at the same time, but I had my hand on the door handle first, so it should be mine." }
+  ],
+  "expect": { "contempt": false, "status": "too_close" }
+}

@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="stylesheet" href="/css/court.css"><link rel="stylesheet" href="/css/ruling-card.css"><title>Family Court · Case</title></head>
+<body>
+<header class="bar"><a class="back" href="/">‹ Docket</a><h1 data-court-name>Family Court</h1></header>
+<main>
+  <div id="header"><h2 id="case-title">Loading…</h2></div>
+  <div id="card-slot"></div>
+  <section class="card">
+    <h3 style="margin:0 0 4px">Transcript</h3>
+    <ul class="transcript" id="transcript"></ul>
+    <div class="thinking" id="thinking" hidden>The court is in session</div>
+    <div id="stream-note" class="small muted"></div>
+  </section>
+  <section class="card" id="opinion-card" hidden>
+    <h3 style="margin:0 0 8px">Opinion of the Court</h3>
+    <div class="opinion" id="opinion"></div>
+  </section>
+  <section class="card">
+    <h3 style="margin:0 0 4px">The filings</h3>
+    <div id="filings"></div>
+  </section>
+</main>
+<footer>Voice by ElevenLabs · Decisions by TypeSafe Jev · Running on Fly.io Sprites</footer>
+<script src="/js/common.js"></script>
+<script src="/js/case.js"></script>
+</body></html>
