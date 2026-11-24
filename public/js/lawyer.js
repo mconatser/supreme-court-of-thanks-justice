@@ -86,7 +86,7 @@
         el(
           "li",
           {},
-          el("a", { href: `/cases/${c.court_case_number}` }, `#${String(c.court_case_number).padStart(4, "0")} ${c.title || ""}`),
+          el("a", { href: `${s.courtUrl || ""}/cases/${c.court_case_number}`, target: s.courtUrl ? "_blank" : null }, `#${String(c.court_case_number).padStart(4, "0")} ${c.title || ""}`),
           el("span", {}, `${c.predictedPct != null ? `predicted ${c.predictedPct}%` : ""}${c.outcome ? ` · ${OUTCOME[c.outcome] || c.outcome}` : " · pending"}`),
         ),
       ),
@@ -124,6 +124,32 @@
       render();
     } catch (e) {
       $("error").textContent = e.message;
+    }
+  });
+
+  $("ex-parte").addEventListener("click", async () => {
+    const btn = $("ex-parte");
+    const out = $("ex-parte-result");
+    btn.disabled = true;
+    out.replaceChildren(el("div", { class: "thinking" }, "Filing the motion"));
+    try {
+      const r = await api("/lawyer/demo/ex-parte", { method: "POST" });
+      const denied = r.attempts.every((a) => a.verdict === "denied");
+      out.replaceChildren(
+        el("div", { class: `ruling-banner${denied ? "" : " granted"}` }, denied ? "🔨 " : "⚠️ ", r.headline),
+        el(
+          "ol",
+          { class: "attempts" },
+          r.attempts.map((a) =>
+            el("li", { class: a.verdict }, el("span", { class: "v" }, a.verdict === "denied" ? "DENIED " : a.verdict === "allowed" ? "ALLOWED " : "?? "), `${a.motion} (${a.connector}${a.status ? `, HTTP ${a.status}` : ""}): ${a.detail}`),
+          ),
+        ),
+        r.sprite ? el("div", { class: "small muted" }, `Tried from Sprite: ${r.sprite}`) : null,
+      );
+    } catch (e) {
+      out.replaceChildren(el("div", { class: "error" }, e.message));
+    } finally {
+      btn.disabled = false;
     }
   });
 

@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { EventEmitter } from "node:events";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
-import { requireRole } from "../shared/auth.ts";
+import { clientIp, RateLimiter, requireRole } from "../shared/auth.ts";
 import { Budget } from "../shared/budget.ts";
 import type { Config } from "../shared/config.ts";
 import { Gateway, type Fetch } from "../shared/gateway.ts";
@@ -13,6 +13,7 @@ import { createOllama, type Ollama } from "../shared/ollama.ts";
 import { Lawyer, type LawyerContext } from "./agent.ts";
 import { CourtClient } from "./court.ts";
 import { openLawyerDb } from "./db.ts";
+import { exParte } from "./exparte.ts";
 
 export interface LawyerOverrides {
   dbPath?: string;
@@ -20,15 +21,25 @@ export interface LawyerOverrides {
   courtFetch?: Fetch;
   jev?: Jev;
   ollama?: Ollama;
+  /** The lawyer's own gateway (tests inject one to simulate connector policies). */
+  gateway?: Gateway;
   log?: (m: string) => void;
 }
 
-export function createLawyer(cfg: Config, o: LawyerOverrides = {}): { lawyer: Lawyer; ctx: LawyerContext } {
+export function createLawyer(cfg: Config, o: LawyerOverrides = {}): { lawyer: Lawyer; ctx: LawyerContext; gateway: Gateway } {
   const log = o.log ?? ((m: string) => console.log(m));
   const db = openLawyerDb(o.dbPath ?? join(cfg.DATA_DIR, "lawyer.db"));
   // Its own budget counters (in MODE=all that's up to twice the daily limits across both apps).
   const budget = new Budget(db, { jev: cfg.JEV_DAILY, ollama: cfg.OLLAMA_DAILY, tts_chars: 0, email: 0 }, cfg.COURT_TZ);
-  const gateway = new Gateway({ mode: cfg.GATEWAY_MODE, listUrl: cfg.GATEWAY_LIST_URL, overrides: { typesafe: cfg.TYPESAFE_BASE, ollama: cfg.OLLAMA_BASE }, log });
+  // Box, AgentMail and TTS overrides are only here for the ex parte demo to try (and be denied).
+  const gateway =
+    o.gateway ??
+    new Gateway({
+      mode: cfg.GATEWAY_MODE,
+      listUrl: cfg.GATEWAY_LIST_URL,
+      overrides: { typesafe: cfg.TYPESAFE_BASE, ollama: cfg.OLLAMA_BASE, box: cfg.BOX_BASE, agentmail: cfg.AGENTMAIL_BASE, elevenlabs_tts: cfg.ELEVENLABS_BASE },
+      log,
+    });
   const bus = new EventEmitter<{ update: [string] }>();
   bus.setMaxListeners(100);
   const ctx: LawyerContext = {
@@ -40,10 +51,14 @@ export function createLawyer(cfg: Config, o: LawyerOverrides = {}): { lawyer: La
     bus,
     log,
   };
-  return { lawyer: new Lawyer(ctx), ctx };
+  return { lawyer: new Lawyer(ctx), ctx, gateway };
 }
 
-export function createLawyerApp(lawyer: Lawyer, ctx: LawyerContext, opts: { publicDir?: string; heartbeatMs?: number; streamMaxMs?: number } = {}) {
+export function createLawyerApp(
+  lawyer: Lawyer,
+  ctx: LawyerContext,
+  opts: { publicDir?: string; heartbeatMs?: number; streamMaxMs?: number; gateway?: Gateway; spriteName?: () => Promise<string | null> } = {},
+) {
   const cfg = ctx.cfg;
   const publicDir = opts.publicDir ?? "public";
   const app = new Hono();
@@ -71,6 +86,16 @@ export function createLawyerApp(lawyer: Lawyer, ctx: LawyerContext, opts: { publ
     if (!text?.trim() && confirm === undefined) return c.json({ error: "Say something to your lawyer first." }, 400);
     void lawyer.handle(ref, { text, confirm });
     return c.json({ ok: true, matter: ref }, 202);
+  });
+
+  // The ex parte demo: a button for people, never a tool for the LLM.
+  const exParteLimiter = new RateLimiter(10, 3600_000);
+  app.post("/demo/ex-parte", auth, async (c) => {
+    if (!opts.gateway) return c.json({ error: "The ex parte demo isn't wired up here." }, 503);
+    if (!exParteLimiter.take(clientIp(c))) return c.json({ error: "The court has heard enough motions for now. Try again later." }, 429);
+    const result = await exParte(cfg, opts.gateway, { sprite: opts.spriteName });
+    ctx.log(`[lawyer] ex parte demo: ${result.attempts.map((a) => `${a.connector}=${a.verdict}`).join(", ")}`);
+    return c.json(result);
   });
 
   app.post("/api/new", auth, (c) => {

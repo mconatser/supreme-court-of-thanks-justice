@@ -22,7 +22,8 @@ function fail(err: unknown): never {
 let cfg, people;
 try {
   cfg = loadConfig();
-  people = loadPeople(cfg.PEOPLE_FILE);
+  // The lawyer gets the party list from the court, so a lawyer-only Sprite has no people.json.
+  people = cfg.MODE === "lawyer" ? [] : loadPeople(cfg.PEOPLE_FILE);
 } catch (err) {
   fail(err);
 }
@@ -33,7 +34,7 @@ const runsLawyer = cfg.MODE === "all" || cfg.MODE === "lawyer";
 
 // The lawyer only talks to the court over HTTP (COURT_URL), even when both run in this process.
 const lawyer = runsLawyer ? createLawyer(cfg) : null;
-if (lawyer) app.route("/lawyer", createLawyerApp(lawyer.lawyer, lawyer.ctx));
+if (lawyer) app.route("/lawyer", createLawyerApp(lawyer.lawyer, lawyer.ctx, { gateway: lawyer.gateway }));
 
 const ctx = runsCourt ? createCourtContext(cfg, people) : null;
 if (ctx) app.route("/", createCourtApp(ctx));

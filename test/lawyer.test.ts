@@ -258,3 +258,86 @@ describe("/lawyer routes", () => {
     expect((await res.json()).error).toMatch(/LAWYER_CLIENT/);
   });
 });
+
+describe("the ex parte demo (separation of powers)", () => {
+  const exEnv = { BOX_FAMILY_CODE_FILE_ID: "fc1", AGENTMAIL_INBOX_ID: "clerk@example.agentmail.to", ELEVENLABS_VOICE_ID: "judge" };
+  const policyGateway = (status: number, visible = true) => {
+    const seen: string[] = [];
+    const gw = new Gateway({
+      mode: "live",
+      listUrl: "https://gateway.test/list",
+      overrides: visible ? { box: "https://gw.test/box/x", agentmail: "https://gw.test/agentmail/x", elevenlabs_tts: "https://gw.test/custom_api/x" } : {},
+      fetchImpl: async (url) => {
+        seen.push(url);
+        if (url.endsWith("/list")) return Response.json({ connections: [] }); // nothing visible to this Sprite
+        return new Response("{}", { status, headers: { "content-type": "application/json" } });
+      },
+      log: () => {},
+    });
+    return { gw, seen };
+  };
+  const run = async (gw: Gateway) => {
+    const s = setup([], exEnv);
+    const app = new Hono();
+    app.route("/lawyer", createLawyerApp(s.lawyer, s.ctx, { gateway: gw, spriteName: async () => "fc-lawyer" }));
+    app.route("/", s.courtApp);
+    const cookie = await login(app as any, TEST_ENV.LAWYER_PASSCODE);
+    const res = await app.request("/lawyer/demo/ex-parte", { method: "POST", headers: { cookie } });
+    return { res, body: await res.json(), app };
+  };
+
+  it("every attempt on the court's connectors comes back DENIED (403)", async () => {
+    const { gw, seen } = policyGateway(403);
+    const { body } = await run(gw);
+    expect(body.headline).toBe("Motion to contact the witness directly: DENIED by the court's connector policy.");
+    expect(body.sprite).toBe("fc-lawyer");
+    expect(body.attempts.map((a: any) => [a.connector, a.verdict, a.status])).toEqual([
+      ["Box", "denied", 403],
+      ["AgentMail", "denied", 403],
+      ["ElevenLabs (text to speech)", "denied", 403],
+    ]);
+    // The email attempt is addressed to the clerk's own inbox, never to a family member.
+    expect(seen).toContain("https://gw.test/agentmail/x/v0/inboxes/clerk%40example.agentmail.to/messages/send");
+    expect(seen).toContain("https://gw.test/box/x/2.0/files/fc1?fields=name");
+  });
+
+  it("connectors that aren't even visible to this Sprite count as denied", async () => {
+    const { gw } = policyGateway(403, false);
+    const { body } = await run(gw);
+    expect(body.attempts.every((a: any) => a.verdict === "denied")).toBe(true);
+  });
+
+  it("warns loudly if a policy hasn't been tightened", async () => {
+    const { gw } = policyGateway(200);
+    const { body } = await run(gw);
+    expect(body.headline).toMatch(/GRANTED\?!.*Tighten/);
+    expect(body.attempts.every((a: any) => a.verdict === "allowed")).toBe(true);
+  });
+
+  it("is a button for people, not a tool the LLM can call", async () => {
+    const { TOOL_DEFS } = await import("../src/lawyer/tools.ts");
+    expect(TOOL_DEFS.map((t) => t.function.name)).not.toContain("ex_parte");
+    expect(JSON.stringify(TOOL_DEFS)).not.toMatch(/box|agentmail|elevenlabs/i);
+    const { gw } = policyGateway(403);
+    const s = setup([], exEnv);
+    const app = new Hono();
+    app.route("/lawyer", createLawyerApp(s.lawyer, s.ctx, { gateway: gw, spriteName: async () => null }));
+    app.route("/", s.courtApp);
+    expect((await app.request("/lawyer/demo/ex-parte", { method: "POST" })).status).toBe(401);
+  });
+});
+
+describe("MODE=lawyer (the two-Sprite split)", () => {
+  it("doesn't need the court's passcodes", () => {
+    const { COURT_PASSCODE, PARENT_PASSCODE, ...rest } = TEST_ENV;
+    expect(() => loadConfig({ ...rest, MODE: "lawyer" })).not.toThrow();
+    expect(() => loadConfig({ ...rest, MODE: "court" })).toThrow(/COURT_PASSCODE/);
+  });
+
+  it("links to case pages on the court's Sprite", () => {
+    const s = setup([], { COURT_URL: "https://fc-court-example.sprites.app/" });
+    expect(s.lawyer.view(s.lawyer.currentMatter()).courtUrl).toBe("https://fc-court-example.sprites.app");
+    const local = setup([], { COURT_URL: "http://localhost:8080" });
+    expect(local.lawyer.view(local.lawyer.currentMatter()).courtUrl).toBe("");
+  });
+});

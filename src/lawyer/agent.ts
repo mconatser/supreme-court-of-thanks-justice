@@ -277,6 +277,8 @@ export class Lawyer {
     const brier = brierScore(cases);
     return {
       client: this.client ?? null,
+      // Where case pages live (the court may be on another Sprite).
+      courtUrl: /^https?:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/.test(this.ctx.cfg.COURT_URL) ? "" : this.ctx.cfg.COURT_URL.replace(/\/+$/, ""),
       matter: ref,
       running: this.isRunning(ref) || row.running === 1,
       pending: row.pending_json ? (JSON.parse(row.pending_json) as Pending) : null,

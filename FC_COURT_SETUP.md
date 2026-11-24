@@ -104,7 +104,11 @@ scripts/deploy.sh fc-court
 
 The script pulls, runs `npm ci`, checks that SQLite loads, migrates, updates `data/DEPLOY_ID`, restarts the service and waits for `/healthz`.
 
-## Friday: tighten connector access (SPEC §12)
+## Later: the lawyer's own Sprite
+
+See [FC_LAWYER_SETUP.md](FC_LAWYER_SETUP.md). It also covers tightening the connector policies.
+
+## Tightening connector access (SPEC §12)
 
 The official ElevenLabs connector isn't used. Text to speech goes through the **Custom API connector** (`elevenlabs-tts`), and that connector needs its own policy too:
 

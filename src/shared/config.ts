@@ -31,8 +31,9 @@ export const ConfigSchema = z.object({
   COURT_URL: str("http://localhost:8080"),
   COURT_TOKEN: secret("COURT_TOKEN").pipe(z.string().min(16, "COURT_TOKEN should be at least 16 characters (try: openssl rand -hex 32)")),
   SESSION_SECRET: secret("SESSION_SECRET").pipe(z.string().min(16, "SESSION_SECRET should be at least 16 characters (try: openssl rand -hex 32)")),
-  COURT_PASSCODE: secret("COURT_PASSCODE"),
-  PARENT_PASSCODE: secret("PARENT_PASSCODE"),
+  // Court-only; a lawyer-only Sprite (MODE=lawyer) doesn't need them.
+  COURT_PASSCODE: str(""),
+  PARENT_PASSCODE: str(""),
   LAWYER_PASSCODE: secret("LAWYER_PASSCODE"),
 
   BOX_FAMILY_CODE_FILE_ID: opt,
@@ -69,7 +70,11 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     const lines = parsed.error.issues.map((i) => `  - ${i.path.join(".") || "config"}: ${i.message}`);
     throw new ConfigError(`The court can't open yet. Please fix .env:\n${lines.join("\n")}`);
   }
-  if (parsed.data.PARENT_PASSCODE === parsed.data.COURT_PASSCODE) {
+  if (parsed.data.MODE !== "lawyer") {
+    const missing = (["COURT_PASSCODE", "PARENT_PASSCODE"] as const).filter((k) => !parsed.data[k].trim());
+    if (missing.length) throw new ConfigError(`The court can't open yet. Please fix .env:\n${missing.map((k) => `  - ${k}: ${k} is missing`).join("\n")}`);
+  }
+  if (parsed.data.MODE !== "lawyer" && parsed.data.PARENT_PASSCODE === parsed.data.COURT_PASSCODE) {
     throw new ConfigError("The court can't open yet. PARENT_PASSCODE must be different from COURT_PASSCODE.");
   }
   return parsed.data;
