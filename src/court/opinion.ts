@@ -55,6 +55,7 @@ export const FIXED_RULES = `Rules you always follow when writing an opinion:
 - If the vote was 2–1, include a short dissent signed by the losing justice.
 - The decision is already made. Write it; never change it.
 - bench_verdict is spoken aloud: one or two sentences, at most 300 characters, and it must name the party it concerns.
+- If there's a sentence, say it in bench_verdict only as "Sentence: <the sentence>." (the card shows it in its own box).
 - Reply only with JSON: { "opinion_md": string, "bench_verdict": string, "cited_articles": number[] }.`;
 
 export function opinionSystemPrompt(persona: string): string {

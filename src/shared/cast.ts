@@ -1,5 +1,5 @@
 /**
- * Display names. Placeholders until Max names everyone (MISSIONS.md, Mission 1).
+ * Display names. Placeholders until Max names everyone (Max.md, Mission 1).
  * He can override them by creating content/cast.json with any of these keys.
  */
 import { readFileSync } from "node:fs";

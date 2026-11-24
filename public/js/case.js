@@ -232,11 +232,7 @@
             "div",
             { class: "rc-split" },
             el("div", { class: "label" }, "⚖️ The justices strongly disagree"),
-            el(
-              "div",
-              { class: "small" },
-              (r.seats || []).filter((s) => s.status === "voted").map((s) => `${s.name} → ${s.party} (${s.pct}%)`).join(" · "),
-            ),
+            el("div", { class: "small" }, disagreeSentence((r.seats || []).filter((s) => s.status === "voted").map((s) => s.name))),
           )
         : pct != null && r.outcome !== "contempt"
         ? el(
@@ -248,7 +244,7 @@
           )
         : null,
       r.sentence ? el("div", { class: "rc-sentence" }, `Sentence: ${r.sentence.text}`) : null,
-      r.benchVerdict ? el("blockquote", { class: "rc-bench" }, `“${r.benchVerdict}”`) : null,
+      (r.benchQuote || r.benchVerdict) ? el("blockquote", { class: "rc-bench" }, `“${r.benchQuote || r.benchVerdict}”`) : null,
       voiceControl(r.voice),
       r.petitionRecommended ? approvalBlock(c) : null,
       r.citedArticles && r.citedArticles.length
@@ -261,6 +257,13 @@
       document.getElementById("opinion-card").hidden = false;
       document.getElementById("opinion").innerHTML = renderMarkdown(r.opinionMd);
     }
+  }
+
+  /** "Justice Cody and Justice Grace don't agree with each other." (Max: no arrows or %.) */
+  function disagreeSentence(names) {
+    if (names.length < 2) return "The justices don't agree with each other.";
+    const list = names.length === 2 ? `${names[0]} and ${names[1]}` : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
+    return `${list} don't agree with each other.`;
   }
 
   function approvalBlock(c) {

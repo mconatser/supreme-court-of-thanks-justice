@@ -128,7 +128,7 @@ describe("config and people", () => {
         { id: "b", alias: "  ", role: "parent" },
         { id: "c", role: "kid" },
       ]),
-    ).toThrow(/needs a court alias[\s\S]*Add an "alias" for: b, c/);
+    ).toThrow(/needs a court alias[\s\S]*Add an "alias" for: entry 2, entry 3/);
   });
 
   it("rejects duplicate aliases and bad roles", () => {

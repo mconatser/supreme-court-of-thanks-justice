@@ -58,8 +58,42 @@ function appealView(ctx: CourtContext, c: CaseRow, filings: FilingRow[], L: Labe
   };
 }
 
+/** A seat's name from the current cast (rulings store the name they had then, e.g. "Justice Letter"). */
+const SEAT_KEYS = { justice_letter: "letter", justice_heart: "heart", justice_memory: "memory" } as const;
+export function seatName(ctx: Pick<CourtContext, "cast">, key: string): string {
+  const seat = SEAT_KEYS[key as keyof typeof SEAT_KEYS];
+  return seat ? ctx.cast.justices[seat] : key;
+}
+
+/** Older opinions were written with the role names; show the justices' real names instead. */
+export function renameJustices<T extends string | null>(ctx: Pick<CourtContext, "cast">, text: T): T {
+  if (!text) return text;
+  return text.replace(/\bJustice (Letter|Heart|Memory)\b/g, (m, role: string) => {
+    const name = ctx.cast.justices[role.toLowerCase() as "letter" | "heart" | "memory"];
+    return name || m;
+  }) as T;
+}
+
+/**
+ * The judge's quote on the card, without the sentence (it has its own box). Drops any sentence of
+ * the quote that states it: one containing the sentence text, or starting "Sentence".
+ */
+export function quoteWithoutSentence(bench: string | null, sentence: string | null): string | null {
+  if (!bench || !sentence?.trim()) return bench;
+  const needle = sentence.trim().toLowerCase().replace(/[.!]+$/, "");
+  const parts = bench.match(/[^.!?]+[.!?]*\s*/g) ?? [bench];
+  const kept = parts.filter((p) => !p.toLowerCase().includes(needle) && !/^\s*(your\s+)?sentence\b/i.test(p));
+  const out = kept.join("").trim();
+  return out || bench;
+}
+
 const currentAliasOf = (ctx: CourtContext, personId: string, L: Labels) => ctx.people.find((p) => p.id === personId)?.alias ?? L.plaintiff;
 
+/**
+ * One transcript line as the stream sends it. Event data stays inside the court: it holds Jev's raw
+ * answers and internal ids (a summons' unheardId is a people.json id, which can be a real first
+ * name), and the page only needs the message.
+ */
 export function publicEvent(e: EventRow, labels?: Labels) {
   return {
     id: e.id,
@@ -67,7 +101,6 @@ export function publicEvent(e: EventRow, labels?: Labels) {
     actor: e.actor,
     kind: e.kind,
     message: labels ? labels.relabel(e.message) : e.message,
-    data: e.data_json ? JSON.parse(e.data_json) : null,
   };
 }
 
@@ -136,14 +169,14 @@ export function caseView(c: CaseRow, ctx: CourtContext, roles: string[] = []) {
       s.status === "voted"
         ? {
             key: s.key,
-            name: s.name,
+            name: seatName(ctx, s.key),
             status: s.status,
             side: s.choice,
             party: sideName(s.choice),
             pct: Math.round(s.probabilities[s.choice] * 100),
             cites: (s.cites ?? []).map(cited),
           }
-        : { key: s.key, name: s.name, status: s.status, reason: s.reason },
+        : { key: s.key, name: seatName(ctx, s.key), status: s.status, reason: s.reason },
     );
     const lean = r.outcome === "compromise" ? leanOf(stored) : null;
     // A split (no lean) has no "% sure"; older rulings stored the justices' own certainty here.
@@ -164,8 +197,10 @@ export function caseView(c: CaseRow, ctx: CourtContext, roles: string[] = []) {
       petitionRecommended: c.type === "petition" && (r.outcome === "plaintiff" || r.outcome === "compromise"),
       round: r.round,
       voice: voiceStatus(ctx, c, r.round),
-      opinionMd: L.relabel(r.opinion_md),
-      benchVerdict: L.relabel(r.bench_verdict),
+      opinionMd: renameJustices(ctx, L.relabel(r.opinion_md)),
+      benchVerdict: renameJustices(ctx, L.relabel(r.bench_verdict)),
+      // The card shows the sentence in its own box, so the judge's quote there leaves it out.
+      benchQuote: quoteWithoutSentence(renameJustices(ctx, L.relabel(r.bench_verdict)), r.sentence_text),
       citedArticles: citedArticles.map((n) => ({ number: n, title: code.articles.find((a) => a.number === n)?.title ?? "" })),
     };
   }

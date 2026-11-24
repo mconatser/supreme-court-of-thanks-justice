@@ -306,3 +306,36 @@ describe("a compromise on a petition needs a parent's OK too", () => {
     expect(needsParentOk({ kind: "too_close", decision: null }, "complaint")).toBe(false);
   });
 });
+
+describe("justice names and the card's quote", () => {
+  it("old rulings (stored as Justice Letter/Heart) show the justices' current names, in seats and text", async () => {
+    const { renameJustices, seatName } = await import("../src/court/views.ts");
+    const ctx = { cast: { justices: { letter: "Justice Cody", heart: "Justice Grace", memory: "Justice Jack" } } } as any;
+    expect(seatName(ctx, "justice_heart")).toBe("Justice Grace");
+    expect(renameJustices(ctx, "Justice Letter agrees, but Justice Heart dissents.")).toBe("Justice Cody agrees, but Justice Grace dissents.");
+    expect(renameJustices(ctx, null)).toBeNull();
+
+    const { app, ctx: court } = makeApp({ BOX_RECORDS_FOLDER_ID: "rec" });
+    const cookie = await login(app);
+    const { id, number } = court.hearings.file({ plaintiff: "Pip", defendant: "Sky Sister", claim: "She took my seat.", relief: "My seat back.", filedBy: "pro_se", filings: [{ author: "Sky Sister", kind: "response", body: "I was first." }] });
+    await court.hearings.start(id);
+    // Rewrite it the way rulings were stored before the justices had names.
+    const r = court.db.prepare("SELECT panel_json FROM rulings WHERE case_id = ?").get(id) as { panel_json: string };
+    const old = JSON.parse(r.panel_json).map((s: any) => ({ ...s, name: s.key === "justice_letter" ? "Justice Letter" : s.key === "justice_heart" ? "Justice Heart" : "Justice Memory" }));
+    court.db.prepare("UPDATE rulings SET panel_json = ?, opinion_md = 'Justice Heart dissents.' WHERE case_id = ?").run(JSON.stringify(old), id);
+    const v = await (await app.request(`/api/cases/${number}`, { headers: { cookie } })).json();
+    expect(v.ruling.seats.map((s: any) => s.name)).toEqual([court.cast.justices.letter, court.cast.justices.heart, court.cast.justices.memory]);
+    expect(v.ruling.opinionMd).toBe(`${court.cast.justices.heart} dissents.`);
+    const { renderRecord } = await import("../src/court/record.ts");
+    const { caseView } = await import("../src/court/views.ts");
+    expect(renderRecord(caseView(court.hearings.getCase(id)!, court), "Court")).not.toMatch(/Justice (Letter|Heart|Memory)/);
+  });
+
+  it("the card's quote drops the sentence; the spoken verdict keeps it", async () => {
+    const { quoteWithoutSentence } = await import("../src/court/views.ts");
+    expect(quoteWithoutSentence("Max wins! Sentence: Hug Grandpa and Grandma. The end!!!", "Hug Grandpa and Grandma")).toBe("Max wins! The end!!!");
+    expect(quoteWithoutSentence("Max wins, and must hug Grandpa and Grandma. The end!!!", "Hug Grandpa and Grandma")).toBe("The end!!!");
+    expect(quoteWithoutSentence("Max wins! The end!!!", "Hug Grandpa and Grandma")).toBe("Max wins! The end!!!");
+    expect(quoteWithoutSentence("Max wins!", null)).toBe("Max wins!");
+  });
+});

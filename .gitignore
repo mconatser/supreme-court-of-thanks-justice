@@ -6,3 +6,7 @@ people.json
 *.db-wal
 *.db-shm
 .DS_Store
+
+# Private search terms for the audit and the release scrub
+.private-terms
+.release-scrub.local

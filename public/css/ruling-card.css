@@ -1,5 +1,5 @@
 /*
- * The ruling card. PLACEHOLDER: Max designs the real one (MISSIONS.md, Mission 6).
+ * The ruling card. PLACEHOLDER: Max designs the real one (Max.md, Mission 6).
  * Everything a card needs is here: case, three justice seats with %, outcome + vote,
  * confidence meter, sentence, cited articles, and (Phase 2) a "Hear the verdict" button.
  */
@@ -45,7 +45,7 @@
    reveals it: a 30% ruling ends in red-orange, an 86% one reaches green. */
 .rc-meter .fill { height: 100%; background-image: linear-gradient(90deg, #d93a2b 0%, #f2c230 50%, #2e9e4f 100%); background-repeat: no-repeat; border-radius: 999px; transition: width 0.8s ease-out; }
 
-.rc-split { margin: 14px 0 6px; padding: 10px; border-radius: 10px; border: 2px dashed var(--info); }
+.rc-split { margin: 14px 0 6px; padding: 10px; border-radius: 10px; border: 2px solid var(--info); }
 .rc-split .label { font-weight: 800; color: var(--info); margin-bottom: 4px; }
 .rc-sentence { margin-top: 12px; padding: 10px; border-radius: 10px; background: color-mix(in srgb, var(--bad) 9%, var(--card)); font-weight: 650; }
 .rc-articles { margin-top: 10px; font-size: 0.88rem; color: var(--muted); }

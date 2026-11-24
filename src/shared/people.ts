@@ -28,25 +28,27 @@ export function parsePeople(raw: unknown, source = "people.json"): Person[] {
   }
   const people = parsed.data.map((p) => ({ ...p, alias: p.alias.trim(), email: p.email.trim() }));
 
-  const missing = people.filter((p) => p.alias === "").map((p) => p.id);
+  // Entries are named by position and alias, never by id: ids can be real first names, and these
+  // messages reach the logs and a parent's browser ("Reload the family list").
+  const which = (i: number) => `entry ${i + 1}${people[i].alias ? ` (${people[i].alias})` : ""}`;
+  const missing = people.map((p, i) => (p.alias === "" ? which(i) : null)).filter(Boolean);
   if (missing.length) {
     throw new PeopleError(
       `Everyone in ${source} needs a court alias (a code name) before court can open.\n` +
         `  Add an "alias" for: ${missing.join(", ")}`,
     );
   }
-  const seenIds = new Set<string>();
-  const seenAliases = new Map<string, string>();
-  for (const p of people) {
-    if (seenIds.has(p.id)) throw new PeopleError(`${source}: the id "${p.id}" is used twice. Each person needs their own id.`);
-    seenIds.add(p.id);
+  const seenIds = new Map<string, number>();
+  const seenAliases = new Map<string, number>();
+  people.forEach((p, i) => {
+    if (seenIds.has(p.id)) throw new PeopleError(`${source}: ${which(seenIds.get(p.id)!)} and ${which(i)} have the same id. Each person needs their own id.`);
+    seenIds.set(p.id, i);
     const key = p.alias.toLowerCase();
-    const other = seenAliases.get(key);
-    if (other) {
-      throw new PeopleError(`${source}: "${other}" and "${p.id}" have the same alias. Each court alias must be different.`);
+    if (seenAliases.has(key)) {
+      throw new PeopleError(`${source}: ${which(seenAliases.get(key)!)} and ${which(i)} have the same alias. Each court alias must be different.`);
     }
-    seenAliases.set(key, p.id);
-  }
+    seenAliases.set(key, i);
+  });
   return people;
 }
 

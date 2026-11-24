@@ -285,3 +285,44 @@ describe("the gavel: three strikes right after the judge's “The end!!!”", ()
     expect(FakeAudio.made.map((a) => a.src)).toEqual(["/sfx/gavel.mp3", "/sfx/gavel.mp3", "/sfx/gavel.mp3"]);
   });
 });
+
+describe("Max: the split box and the sentence", () => {
+  const seat = (key: string, name: string, side: string, party: string, pct: number) => ({ key, name, status: "voted", side, party, pct, cites: [] });
+  it("“Justice Cody and Justice Grace don't agree with each other.”: no arrows, no percentages", async () => {
+    current = baseCase({
+      status: "too_close",
+      final: true,
+      plaintiff: "Max",
+      defendant: "Hailey",
+      ruling: {
+        outcome: "compromise", vote: "1–1", split: true, confidencePct: null, sentence: null, citedArticles: [], voice: { status: "none" },
+        seats: [seat("justice_letter", "Justice Cody", "plaintiff", "Max", 72), seat("justice_heart", "Justice Grace", "defendant", "Hailey", 100), { key: "justice_memory", name: "Justice Jack", status: "recused", reason: "recused: no relevant precedent" }],
+      },
+    });
+    loadPage();
+    await settle();
+    const box = document.querySelector(".rc-split")!;
+    expect(box.querySelector(".small")!.textContent).toBe("Justice Cody and Justice Grace don't agree with each other.");
+    expect(box.textContent).not.toMatch(/→|%/);
+    const css = readFileSync("public/css/ruling-card.css", "utf8");
+    expect(css).toMatch(/\.rc-split \{[^}]*border: 2px solid var\(--info\)/);
+  });
+
+  it("the judge's quote on the card leaves the sentence out (it has its own box)", async () => {
+    current = baseCase({
+      status: "ruled",
+      final: true,
+      ruling: {
+        outcome: "plaintiff", winner: "Max", vote: "2–1", confidencePct: 71, citedArticles: [], voice: { status: "none" },
+        seats: [seat("justice_letter", "Justice Cody", "plaintiff", "Max", 80)],
+        sentence: { level: 3, text: "Hug Grandpa and Grandma" },
+        benchVerdict: "Max wins! Sentence: Hug Grandpa and Grandma. The end!!!",
+        benchQuote: "Max wins! The end!!!",
+      },
+    });
+    loadPage();
+    await settle();
+    expect(document.querySelector(".rc-sentence")!.textContent).toBe("Sentence: Hug Grandpa and Grandma");
+    expect(document.querySelector(".rc-bench")!.textContent).toBe("“Max wins! The end!!!”");
+  });
+});
