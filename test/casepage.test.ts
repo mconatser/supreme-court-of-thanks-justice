@@ -326,3 +326,14 @@ describe("Max: the split box and the sentence", () => {
     expect(document.querySelector(".rc-bench")!.textContent).toBe("“Max wins! The end!!!”");
   });
 });
+
+describe("footer credits", () => {
+  const credits = "Voice by ElevenLabs · Decisions by TypeSafe Jev · Opinions by Ollama · Records in Box · Mail by AgentMail · Running on Fly.io Sprites";
+  for (const page of ["index", "case", "file", "login", "summons", "lawyer"]) {
+    it(`${page}.html credits every service`, () => {
+      const footer = readFileSync(`public/${page}.html`, "utf8").match(/<footer>(.*)<\/footer>/)![1];
+      expect(footer).toContain(credits);
+      if (page === "lawyer") expect(footer).toContain("Greg runs on Ollama");
+    });
+  }
+});

@@ -11,7 +11,7 @@ import { caseLabel } from "./precedent.ts";
 
 type StoredSeat = Seat & { name: string };
 
-/** ready: ▶ playable · no_budget: "lost their voice for today" · unavailable: TTS failed · none: voice off */
+/** ready: ▶ playable · no_budget: "lost his voice for today" · unavailable: TTS failed · none: voice off */
 function voiceStatus(ctx: CourtContext, c: CaseRow, round: number) {
   if (ctx.voice.hasAudio(c.number, round)) return { status: "ready", url: `/cases/${c.number}/verdict.mp3${round ? "?round=1" : ""}` };
   const kind = round ? "appeal.voice.unavailable" : "voice.unavailable";
@@ -100,8 +100,13 @@ export function publicEvent(e: EventRow, labels?: Labels) {
     ts: e.ts,
     actor: e.actor,
     kind: e.kind,
-    message: labels ? labels.relabel(e.message) : e.message,
+    message: judgePronouns(labels ? labels.relabel(e.message) : e.message),
   };
+}
+
+/** Judge Andy Gravy is a he; transcripts saved before that said "their". */
+function judgePronouns(m: string): string {
+  return m.replace("The judge clears their throat", "The judge clears his throat").replace("The judge has lost their voice", "The judge has lost his voice");
 }
 
 /** Which way the voting justices leaned, e.g. { side: "plaintiff", vote: "2–1" }; null on a tie. */

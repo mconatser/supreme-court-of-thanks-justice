@@ -4,7 +4,7 @@
  * supported" for TTS. Verified on fc-court-dev: POST /v1/text-to-speech/{voice_id} → 200 audio/mpeg.
  *
  * Each verdict is synthesized once and cached at data/audio/case-<n>.mp3. TTS_CHARS_DAILY guards
- * the free plan's ~10 minutes a month; when it runs out the judge has "lost their voice for today".
+ * the free plan's ~10 minutes a month; when it runs out the judge has "lost his voice for today".
  */
 import { existsSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";

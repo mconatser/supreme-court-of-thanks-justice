@@ -375,7 +375,7 @@
 
   function voiceControl(voice) {
     if (!voice || voice.status === "none") return null;
-    if (voice.status === "no_budget") return el("div", { class: "rc-voice-note" }, "🤐 The judge has lost their voice for today.");
+    if (voice.status === "no_budget") return el("div", { class: "rc-voice-note" }, "🤐 The judge has lost his voice for today.");
     if (voice.status === "unavailable") return el("div", { class: "rc-voice-note" }, "🎙️ The judge's microphone isn't working, so here's the verdict in writing.");
     return el("button", { class: "btn", type: "button", id: "play-verdict", style: "margin-top:12px", onclick: () => playVerdict(voice.url) }, "▶ Hear the verdict");
   }

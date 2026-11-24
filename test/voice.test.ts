@@ -72,14 +72,14 @@ describe("the spoken verdict", () => {
     expect(view.ruling.voice).toEqual({ status: "ready", url: `/cases/${number}/verdict.mp3` });
   });
 
-  it("when TTS_CHARS_DAILY runs out, the verdict is in writing and the judge has lost their voice", async () => {
+  it("when TTS_CHARS_DAILY runs out, the verdict is in writing and the judge has lost his voice", async () => {
     const m = makeApp(voiceEnv({ TTS_CHARS_DAILY: "10" }));
     const cookie = await login(m.app);
     const { id, number } = await rule(m);
     expect(stubTts.requests).toHaveLength(0);
     expect(m.ctx.hearings.getCase(id)!.status).toBe("ruled");
     const ev = m.ctx.db.prepare("SELECT message FROM events WHERE case_id = ? AND kind = 'voice.unavailable'").get(id) as { message: string };
-    expect(ev.message).toMatch(/lost their voice for today/);
+    expect(ev.message).toMatch(/lost his voice for today/);
     const view = await (await m.app.request(`/api/cases/${number}`, { headers: { cookie } })).json();
     expect(view.ruling.voice.status).toBe("no_budget");
     expect(view.ruling.benchVerdict).toBeTruthy();

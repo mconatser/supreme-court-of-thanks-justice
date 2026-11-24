@@ -530,9 +530,9 @@ export class Hearings {
     const result = await this.ctx.voice.speak(c.number, spokenVerdict(r.bench_verdict, this.ctx.cast.catchphrase), round);
     if (result.status === "ready") {
       this.ctx.db.prepare("UPDATE rulings SET audio_path = ? WHERE case_id = ? AND round = ?").run(result.path, caseId, round);
-      this.emit(caseId, "judge", `${prefix}voice.ready`, "The judge clears their throat…", { round });
+      this.emit(caseId, "judge", `${prefix}voice.ready`, "The judge clears his throat…", { round });
     } else if (result.status === "no_budget") {
-      this.emit(caseId, "judge", `${prefix}voice.unavailable`, "The judge has lost their voice for today, so the verdict is in writing.", { reason: "no_budget", round });
+      this.emit(caseId, "judge", `${prefix}voice.unavailable`, "The judge has lost his voice for today, so the verdict is in writing.", { reason: "no_budget", round });
     } else if (result.status === "failed") {
       this.emit(caseId, "judge", `${prefix}voice.unavailable`, "The judge's microphone isn't working right now, so the verdict is in writing.", { reason: "failed", round });
     }
