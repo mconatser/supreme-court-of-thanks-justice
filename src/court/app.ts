@@ -112,7 +112,7 @@ export function createCourtApp(ctx: CourtContext, opts: CourtAppOptions = {}) {
     const decision = ((await c.req.json().catch(() => ({}))) as { decision?: string }).decision;
     if (decision !== "approve" && decision !== "deny") return c.json({ error: "Choose approve or deny." }, 400);
     try {
-      ctx.hearings.decidePetition(k.id, decision);
+      await ctx.hearings.decidePetition(k.id, decision);
     } catch (err) {
       if (err instanceof ApprovalError) return c.json({ error: err.message }, 409);
       throw err;
@@ -236,11 +236,17 @@ export function createCourtApp(ctx: CourtContext, opts: CourtAppOptions = {}) {
     }
   });
 
+  /** Re-read the Family Code from Box now (instead of waiting for the next hearing). */
+  app.post("/admin/reload-code", parent, async (c) => {
+    const code = await ctx.familyCode.refresh(true);
+    return c.json({ ok: true, ...ctx.familyCode.where, articles: code.articles.length, warnings: code.warnings });
+  });
+
   // ---------- lawyer → court (COURT_TOKEN) ----------
 
   app.get("/law-library", requireTokenOrRole(cfg, "court"), (c) => {
     const code = ctx.familyCode.load();
-    return c.json({ text: code.text, articles: code.articles, sentencing: code.sentencing, warnings: code.warnings });
+    return c.json({ text: code.text, articles: code.articles, sentencing: code.sentencing, warnings: code.warnings, origin: ctx.familyCode.where });
   });
 
   app.get("/api/precedent", requireCourtToken(cfg), (c) => c.json({ precedent: findPrecedent(ctx.db, c.req.query("q") ?? "") }));

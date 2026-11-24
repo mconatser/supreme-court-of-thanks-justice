@@ -10,7 +10,11 @@
  */
 import { stubFetch } from "./stub.ts";
 
-export type Provider = "typesafe" | "ollama" | "box" | "agentmail" | "elevenlabs";
+/**
+ * elevenlabs_tts is the Custom API connector for https://api.elevenlabs.io (ELEVENLABS_BASE): the
+ * official ElevenLabs connector doesn't forward text-to-speech, so TTS never uses discovery.
+ */
+export type Provider = "typesafe" | "ollama" | "box" | "agentmail" | "elevenlabs" | "elevenlabs_tts";
 export type Fetch = (input: string, init?: RequestInit) => Promise<Response>;
 
 export interface Connector {
@@ -119,6 +123,9 @@ export class Gateway {
     if (this.opts.mode === "stub") return `stub://${provider}`;
     const override = this.opts.overrides?.[provider];
     if (override) return override.replace(/\/+$/, "");
+    if (provider === "elevenlabs_tts") {
+      throw new GatewayError(provider, 0, "Text to speech needs ELEVENLABS_BASE (the Custom API connector for api.elevenlabs.io).");
+    }
     const found = (await this.discover()).get(provider);
     if (!found) {
       throw new GatewayError(provider, 0, `${provider}: no connector found. Add it in the Fly dashboard, or set ${provider.toUpperCase()}_BASE.`);

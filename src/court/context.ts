@@ -9,6 +9,7 @@ import { createJev, type Jev } from "../shared/jev.ts";
 import { createOllama, type Ollama } from "../shared/ollama.ts";
 import type { Person } from "../shared/people.ts";
 import { linkParties, openDb, type DB, type EventRow } from "./db.ts";
+import { BoxClient } from "./box.ts";
 import { FamilyCodeSource } from "./familyCode.ts";
 import { LandmarkSource } from "./landmarks.ts";
 import { Hearings } from "./hearing.ts";
@@ -25,6 +26,7 @@ export interface CourtContext {
   /** Emits "event" with each new EventRow. */
   bus: EventEmitter<{ event: [EventRow] }>;
   familyCode: FamilyCodeSource;
+  box: BoxClient;
   landmarks: LandmarkSource;
   persona: () => string;
   hearings: Hearings;
@@ -62,11 +64,12 @@ export function createCourtContext(cfg: Config, people: Person[], o: ContextOver
       ollama: cfg.OLLAMA_BASE,
       box: cfg.BOX_BASE,
       agentmail: cfg.AGENTMAIL_BASE,
-      elevenlabs: cfg.ELEVENLABS_BASE,
+      elevenlabs_tts: cfg.ELEVENLABS_BASE,
     },
     fetchImpl: o.fetchImpl,
     log,
   });
+  const box = new BoxClient(gateway);
   const bus = new EventEmitter<{ event: [EventRow] }>();
   bus.setMaxListeners(200);
 
@@ -86,7 +89,14 @@ export function createCourtContext(cfg: Config, people: Person[], o: ContextOver
     ollama: o.ollama ?? createOllama({ gateway, budget, model: cfg.OLLAMA_MODEL }),
     budget,
     bus,
-    familyCode: new FamilyCodeSource(join(cfg.CONTENT_DIR, "family-code.md")),
+    familyCode: new FamilyCodeSource({
+      filePath: join(cfg.CONTENT_DIR, "family-code.md"),
+      cachePath: o.dbPath === ":memory:" ? undefined : join(cfg.DATA_DIR, "family-code.box.md"),
+      box: cfg.BOX_FAMILY_CODE_FILE_ID ? box : undefined,
+      fileId: cfg.BOX_FAMILY_CODE_FILE_ID,
+      log,
+    }),
+    box,
     landmarks: new LandmarkSource(o.landmarksPath ?? join(cfg.CONTENT_DIR, "landmark-cases.md")),
     persona: () => {
       try {

@@ -16,38 +16,176 @@ export function fixture<T = any>(name: string): T {
 }
 
 /** Every stubbed request, newest last. Tests read this to check what was sent. */
-export const stubCalls: { provider: string; method: string; path: string; body: any }[] = [];
+export const stubCalls: { provider: string; method: string; path: string; body: any; form?: Record<string, string> }[] = [];
 
-type Handler = (body: any) => unknown;
+interface StubRequest {
+  url: URL;
+  method: string;
+  body: any;
+  /** Multipart fields (files read as text), in the order they were sent. */
+  form?: [string, string][];
+}
+type Handler = (req: StubRequest) => unknown | Response | Promise<unknown | Response>;
 interface Route {
   provider: string;
   method: string;
-  prefix: string;
+  /** A path prefix, or a regex for paths with ids in them. */
+  path: string | RegExp;
   handler: Handler;
 }
 
 const routes: Route[] = [
-  { provider: "typesafe", method: "POST", prefix: "/v1/systemone", handler: (b) => jevStub(b) },
-  { provider: "typesafe", method: "GET", prefix: "/v1/models", handler: () => fixture("typesafe/models.json") },
-  { provider: "ollama", method: "POST", prefix: "/api/chat", handler: (b) => ollamaStub(b) },
-  { provider: "ollama", method: "GET", prefix: "/api/tags", handler: () => fixture("ollama/tags.json") },
+  { provider: "typesafe", method: "POST", path: "/v1/systemone", handler: (r) => jevStub(r.body) },
+  { provider: "typesafe", method: "GET", path: "/v1/models", handler: () => fixture("typesafe/models.json") },
+  { provider: "ollama", method: "POST", path: "/api/chat", handler: (r) => ollamaStub(r.body) },
+  { provider: "ollama", method: "GET", path: "/api/tags", handler: () => fixture("ollama/tags.json") },
+  { provider: "box", method: "GET", path: /^\/2\.0\/files\/[^/]+\/content$/, handler: (r) => stubBox.download(r) },
+  { provider: "box", method: "GET", path: /^\/2\.0\/files\/[^/]+$/, handler: (r) => stubBox.info(r) },
+  { provider: "box", method: "POST", path: /^\/upload\/files\/content$/, handler: (r) => stubBox.upload(r) },
+  { provider: "box", method: "POST", path: /^\/upload\/files\/[^/]+\/content$/, handler: (r) => stubBox.uploadVersion(r) },
+  { provider: "agentmail", method: "GET", path: "/v0/auth/me", handler: () => ({ credential_kind: "api_key", credential_scope: "inbox" }) },
+  { provider: "agentmail", method: "POST", path: /^\/v0\/inboxes\/[^/]+\/messages\/send$/, handler: (r) => stubMail.send(r) },
+  { provider: "elevenlabs_tts", method: "POST", path: /^\/v1\/text-to-speech\/[^/]+$/, handler: (r) => stubTts.speak(r) },
 ];
 
 export async function stubFetch(provider: string, input: string, init: RequestInit = {}): Promise<Response> {
   const url = new URL(input);
   const method = (init.method ?? "GET").toUpperCase();
   let body: any = undefined;
+  let form: [string, string][] | undefined;
   if (typeof init.body === "string") body = JSON.parse(init.body);
   else if (init.body instanceof Uint8Array || init.body instanceof ArrayBuffer) body = JSON.parse(new TextDecoder().decode(init.body));
-  stubCalls.push({ provider, method, path: url.pathname, body });
+  else if (init.body instanceof FormData) {
+    form = [];
+    for (const [k, v] of init.body.entries()) form.push([k, typeof v === "string" ? v : await v.text()]);
+  }
+  stubCalls.push({ provider, method, path: url.pathname, body, form: form && Object.fromEntries(form) });
   if (stubCalls.length > 500) stubCalls.splice(0, stubCalls.length - 500);
 
-  const route = routes.find((r) => r.provider === provider && r.method === method && url.pathname.startsWith(r.prefix));
+  const route = routes.find(
+    (r) =>
+      r.provider === provider &&
+      r.method === method &&
+      (typeof r.path === "string" ? url.pathname.startsWith(r.path) : r.path.test(url.pathname)),
+  );
   if (!route) {
     return Response.json({ error: `stub: nothing for ${provider} ${method} ${url.pathname}` }, { status: 404 });
   }
-  return Response.json(route.handler(body));
+  const out = await route.handler({ url, method, body, form });
+  return out instanceof Response ? out : Response.json(out);
 }
+
+// ---------- Box: a tiny in-memory Box ----------
+
+interface StubFile {
+  id: string;
+  name: string;
+  parent: string;
+  versions: string[]; // contents, oldest first
+}
+
+export const stubBox = {
+  files: new Map<string, StubFile>(),
+  nextId: 1000,
+  /** Make the next N requests fail with this status (for outage tests). */
+  failNext: 0,
+  failStatus: 503,
+
+  reset() {
+    this.files.clear();
+    this.failNext = 0;
+  },
+  put(id: string, name: string, content: string, parent = "0") {
+    const f = this.files.get(id);
+    if (f) f.versions.push(content);
+    else this.files.set(id, { id, name, parent, versions: [content] });
+  },
+  latest(id: string) {
+    const f = this.files.get(id);
+    return f?.versions.at(-1);
+  },
+  inFolder(parent: string) {
+    return [...this.files.values()].filter((f) => f.parent === parent);
+  },
+  failing(): Response | null {
+    if (this.failNext > 0) {
+      this.failNext--;
+      return Response.json({ type: "error", status: this.failStatus }, { status: this.failStatus });
+    }
+    return null;
+  },
+  describe(f: StubFile) {
+    return { type: "file", id: f.id, name: f.name, file_version: { type: "file_version", id: `${f.id}-v${f.versions.length}` }, modified_at: "2026-11-24T00:00:00-08:00" };
+  },
+  info(r: StubRequest) {
+    const fail = this.failing();
+    if (fail) return fail;
+    const f = this.files.get(r.url.pathname.split("/")[3]);
+    return f ? this.describe(f) : Response.json({ type: "error", status: 404, code: "not_found" }, { status: 404 });
+  },
+  download(r: StubRequest) {
+    const fail = this.failing();
+    if (fail) return fail;
+    const f = this.files.get(r.url.pathname.split("/")[3]);
+    return f ? new Response(f.versions.at(-1)!, { headers: { "content-type": "application/octet-stream" } }) : new Response("", { status: 404 });
+  },
+  upload(r: StubRequest) {
+    const fail = this.failing();
+    if (fail) return fail;
+    const fields = r.form ?? [];
+    if (fields[0]?.[0] !== "attributes") return Response.json({ code: "bad_request", message: "attributes must come first" }, { status: 400 });
+    const attrs = JSON.parse(fields[0][1]);
+    const content = fields.find(([k]) => k === "file")?.[1] ?? "";
+    const clash = this.inFolder(attrs.parent.id).find((f) => f.name === attrs.name);
+    if (clash) {
+      return Response.json(
+        { type: "error", status: 409, code: "item_name_in_use", context_info: { conflicts: { type: "file", id: clash.id, name: clash.name } } },
+        { status: 409 },
+      );
+    }
+    const id = String(this.nextId++);
+    this.files.set(id, { id, name: attrs.name, parent: attrs.parent.id, versions: [content] });
+    return { total_count: 1, entries: [this.describe(this.files.get(id)!)] };
+  },
+  uploadVersion(r: StubRequest) {
+    const fail = this.failing();
+    if (fail) return fail;
+    const f = this.files.get(r.url.pathname.split("/")[3]);
+    if (!f) return Response.json({ status: 404, code: "not_found" }, { status: 404 });
+    f.versions.push((r.form ?? []).find(([k]) => k === "file")?.[1] ?? "");
+    return { total_count: 1, entries: [this.describe(f)] };
+  },
+};
+
+// ---------- AgentMail ----------
+
+export const stubMail = {
+  sent: [] as { inbox: string; to: string[]; subject: string; text: string; html?: string }[],
+  reset() {
+    this.sent = [];
+  },
+  send(r: StubRequest) {
+    const inbox = decodeURIComponent(r.url.pathname.split("/")[3]);
+    this.sent.push({ inbox, ...r.body });
+    return { message_id: `msg_${this.sent.length}`, thread_id: `thr_${this.sent.length}` };
+  },
+};
+
+// ---------- ElevenLabs text to speech ----------
+
+/** A few bytes that start like an MP3 frame; enough for tests. */
+export const STUB_MP3 = new Uint8Array([0x49, 0x44, 0x33, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xfb, 0x90, 0x64]);
+
+export const stubTts = {
+  requests: [] as { voice: string; text: string; model_id?: string }[],
+  reset() {
+    this.requests = [];
+  },
+  speak(r: StubRequest) {
+    this.requests.push({ voice: r.url.pathname.split("/").at(-1)!, ...r.body });
+    return new Response(STUB_MP3, { headers: { "content-type": "audio/mpeg" } });
+  },
+};
 
 // ---------- TypeSafe Jev ----------
 

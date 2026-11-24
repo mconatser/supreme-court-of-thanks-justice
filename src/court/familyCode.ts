@@ -1,11 +1,12 @@
 /**
- * The Family Code: Max's laws. Phase 1 reads content/family-code.md; Phase 2 moves the
- * source of truth to Box (cached by file version).
+ * The Family Code: Max's laws. Box is the source of truth (cached by file version), with
+ * content/family-code.md as the fallback and the only source when Box isn't configured.
  *
  * Articles are `## Article N. Title` headings. Sentencing guidelines are a numbered list (0–4)
  * under `## Sentencing Guidelines`. If parsing fails, fall back to default tiers with a warning.
  */
-import { readFileSync, statSync } from "node:fs";
+import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 
 export interface Article {
   number: number;
@@ -84,22 +85,115 @@ export function parseFamilyCode(md: string): FamilyCode {
   return { text, articles, sentencing, usingDefaultSentencing, warnings };
 }
 
-/** Reads the Family Code from a file, re-parsing only when the file changes. */
-export class FamilyCodeSource {
-  private cached?: { mtimeMs: number; code: FamilyCode };
+export interface CodeOrigin {
+  /** box: fresh from Box · box-cache: last copy saved from Box · file: content/family-code.md */
+  source: "box" | "box-cache" | "file";
+  version: string | null;
+}
 
-  constructor(private readonly path: string) {}
+export interface FamilyCodeOptions {
+  /** content/family-code.md: the fallback (and the only source when Box isn't configured). */
+  filePath: string;
+  /** Where the last good copy from Box is saved, so a cold start works without Box. */
+  cachePath?: string;
+  box?: { fileInfo(id: string): Promise<{ versionId: string }>; downloadText(id: string): Promise<string> };
+  fileId?: string;
+  /** Don't ask Box for the version more often than this (one cheap call per hearing at most). */
+  minCheckMs?: number;
+  log?: (m: string) => void;
+  now?: () => number;
+}
+
+/**
+ * The Family Code. With Box configured, Box is the source of truth, cached by file version and
+ * re-downloaded only when the version changes. If Box can't be reached the court keeps going on
+ * its last saved copy (or the local file) and says so politely on the docket.
+ */
+export class FamilyCodeSource {
+  private text = "";
+  private origin: CodeOrigin = { source: "file", version: null };
+  private fileMtime = -1;
+  private parsed?: { text: string; code: FamilyCode };
+  private lastCheck = 0;
+  private boxTrouble = false;
+
+  constructor(private readonly opts: FamilyCodeOptions) {
+    if (this.usesBox && opts.cachePath) {
+      try {
+        const meta = JSON.parse(readFileSync(`${opts.cachePath}.json`, "utf8")) as { version: string; fileId: string };
+        if (meta.fileId === opts.fileId) {
+          this.text = readFileSync(opts.cachePath, "utf8");
+          this.origin = { source: "box-cache", version: meta.version };
+        }
+      } catch {}
+    }
+  }
+
+  get usesBox() {
+    return !!(this.opts.box && this.opts.fileId);
+  }
+
+  get where(): CodeOrigin {
+    return { ...this.origin };
+  }
+
+  private readFile() {
+    try {
+      const m = statSync(this.opts.filePath).mtimeMs;
+      if (m !== this.fileMtime) {
+        this.fileMtime = m;
+        this.text = readFileSync(this.opts.filePath, "utf8");
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }
 
   load(): FamilyCode {
-    let mtimeMs = 0;
+    let missing = false;
+    if (this.origin.source === "file") missing = !this.readFile();
+    if (this.parsed?.text !== this.text) this.parsed = { text: this.text, code: parseFamilyCode(this.text) };
+    const code = this.parsed.code;
+    const extra: string[] = [];
+    if (missing) extra.push("The court couldn't find the Family Code file.");
+    if (this.usesBox && this.boxTrouble) {
+      extra.push(
+        this.origin.source === "file"
+          ? "The court couldn't reach the Family Code in Box, so it's using the local copy for now."
+          : "The court couldn't reach Box just now, so it's using its last saved copy of the Family Code.",
+      );
+    }
+    return extra.length ? { ...code, warnings: [...code.warnings, ...extra] } : code;
+  }
+
+  /** Check Box for a new version (throttled unless forced). Never throws. */
+  async refresh(force = false): Promise<FamilyCode> {
+    const { box, fileId } = this.opts;
+    if (!box || !fileId) return this.load();
+    const now = (this.opts.now ?? Date.now)();
+    if (!force && now - this.lastCheck < (this.opts.minCheckMs ?? 30_000) && this.origin.source === "box") return this.load();
+    this.lastCheck = now;
     try {
-      mtimeMs = statSync(this.path).mtimeMs;
-    } catch {
-      return { ...parseFamilyCode(""), warnings: ["The court couldn't find the Family Code file."] };
+      const info = await box.fileInfo(fileId);
+      if (force || info.versionId !== this.origin.version || this.origin.source !== "box") {
+        if (info.versionId !== this.origin.version || force) {
+          this.text = await box.downloadText(fileId);
+          if (this.opts.cachePath) {
+            mkdirSync(dirname(this.opts.cachePath), { recursive: true });
+            writeFileSync(this.opts.cachePath, this.text);
+            writeFileSync(`${this.opts.cachePath}.json`, JSON.stringify({ fileId, version: info.versionId }));
+          }
+          this.opts.log?.(`[family-code] loaded version ${info.versionId} from Box`);
+        }
+        this.origin = { source: "box", version: info.versionId };
+      }
+      this.boxTrouble = false;
+    } catch (err) {
+      this.boxTrouble = true;
+      this.opts.log?.(`[family-code] Box unavailable, using ${this.origin.source}: ${(err as Error).message}`);
+      if (this.origin.source === "file") this.readFile();
     }
-    if (this.cached?.mtimeMs !== mtimeMs) {
-      this.cached = { mtimeMs, code: parseFamilyCode(readFileSync(this.path, "utf8")) };
-    }
-    return this.cached.code;
+    return this.load();
   }
 }

@@ -32,8 +32,10 @@ app.route("/", createCourtApp(ctx));
 
 const server = serve({ fetch: app.fetch, port: cfg.PORT }, (info) => {
   console.log(`[court] ${ctx.cast.court} is in session on port ${info.port} (MODE=${cfg.MODE}, GATEWAY_MODE=${cfg.GATEWAY_MODE})`);
+  void ctx.familyCode.refresh(true).then(() => console.log(`[court] Family Code from ${ctx.familyCode.where.source}`));
   const resumed = ctx.hearings.resumeOpen();
   if (resumed.length) console.log(`[court] resuming ${resumed.length} open hearing(s)`);
+  void ctx.hearings.retryRecords().then((n) => n && console.log(`[court] filed ${n} missing record(s) in Box`));
 });
 
 const shutdown = () => {

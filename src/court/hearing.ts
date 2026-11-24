@@ -34,6 +34,8 @@ import type { FamilyCode } from "./familyCode.ts";
 import { writeOpinion, type OpinionFacts } from "./opinion.ts";
 import { landmarkAsPrecedent } from "./landmarks.ts";
 import { caseLabel, findPrecedent } from "./precedent.ts";
+import { recordName, renderRecord } from "./record.ts";
+import { caseView } from "./views.ts";
 
 export interface FileInput {
   plaintiff: string;
@@ -170,7 +172,7 @@ export class Hearings {
   // ---------- petitions ----------
 
   /** The Executive Branch (a parent) approves or denies a granted petition. */
-  decidePetition(caseId: number, decision: "approve" | "deny"): void {
+  async decidePetition(caseId: number, decision: "approve" | "deny"): Promise<void> {
     const c = this.getCase(caseId);
     if (!c || c.approval !== "pending") throw new ApprovalError("This case isn't waiting for a parent's OK.");
     const approval = decision === "approve" ? "approved" : "denied";
@@ -184,6 +186,54 @@ export class Hearings {
         : "The Executive Branch says no to this one. The court's ruling stands, but the house rule stays the same.",
       { approval },
     );
+    await this.syncRecord(caseId);
+  }
+
+  // ---------- the record (Box) ----------
+
+  /** File (or re-file, as a new version) the case record in Box. Never throws. */
+  async syncRecord(caseId: number): Promise<void> {
+    const folder = this.ctx.cfg.BOX_RECORDS_FOLDER_ID;
+    const c = this.getCase(caseId);
+    if (!folder || !c) return;
+    const r = this.ctx.db.prepare("SELECT box_file_id FROM rulings WHERE case_id = ? ORDER BY round DESC LIMIT 1").get(caseId) as
+      | { box_file_id: string | null }
+      | undefined;
+    if (!r) return;
+    const name = recordName(c.number);
+    const md = renderRecord(caseView(c, this.ctx), this.ctx.cast.court);
+    try {
+      const info = r.box_file_id ? await this.ctx.box.uploadVersion(r.box_file_id, name, md) : await this.ctx.box.upsertText(folder, name, md);
+      this.ctx.db.prepare("UPDATE rulings SET box_file_id = ? WHERE case_id = ?").run(info.id, caseId);
+      const first = !this.lastEvent(caseId, "record.filed");
+      this.emit(
+        caseId,
+        "clerk",
+        first ? "record.filed" : "record.updated",
+        first ? `The clerk files the official record in Box (${name}).` : `The clerk updates the official record in Box (${name}).`,
+        { boxFileId: info.id, versionId: info.versionId },
+      );
+    } catch (err) {
+      this.ctx.log(`[record] ${name}: ${(err as Error).message}`);
+      if (this.lastEvent(caseId)?.kind !== "record.trouble") {
+        this.emit(caseId, "clerk", "record.trouble", "The clerk couldn't reach the Box filing cabinet. The record will be filed later.");
+      }
+    }
+  }
+
+  /** On boot: file any closed case whose record never made it to Box. */
+  async retryRecords(): Promise<number> {
+    if (!this.ctx.cfg.BOX_RECORDS_FOLDER_ID) return 0;
+    const rows = this.ctx.db
+      .prepare(
+        `SELECT c.id FROM cases c JOIN rulings r ON r.case_id = c.id
+          WHERE c.status IN ('ruled','too_close','contempt')
+            AND NOT EXISTS (SELECT 1 FROM events e WHERE e.case_id = c.id AND e.kind = 'record.filed')
+          ORDER BY c.id LIMIT 20`,
+      )
+      .all() as { id: number }[];
+    for (const row of rows) await this.syncRecord(row.id);
+    return rows.length;
   }
 
   // ---------- running ----------
@@ -244,8 +294,8 @@ export class Hearings {
     c = this.getCase(caseId)!;
     const caseType = (c.type as CaseType) ?? screening.caseType;
 
-    // 3. Law library
-    const code = ctx.familyCode.load();
+    // 3. Law library (checks Box for a newer version; falls back politely)
+    const code = await ctx.familyCode.refresh();
     if (!this.lastEvent(caseId, "law.loaded")) {
       this.emit(
         caseId,
@@ -506,14 +556,16 @@ export class Hearings {
       this.emit(id, "clerk", "opinion.written", "The clerk reads the court's opinion.", op);
     }
 
-    // 8. Record: Box, voice and email arrive in Phase 2.
-
-    // 9. Gavel
     const final: CaseStatus = ruling.kind === "contempt" ? "contempt" : ruling.kind === "too_close" ? "too_close" : "ruled";
     this.ctx.db.prepare("UPDATE cases SET status = ?, ruled_at = ? WHERE id = ?").run(final, Date.now(), id);
     // A granted petition is only a recommendation until a parent approves it.
     const granted = ruling.kind === "ruled" && ruling.decision?.outcome === "plaintiff" && this.getCase(id)!.type === "petition";
     if (granted) this.ctx.db.prepare("UPDATE cases SET approval = 'pending' WHERE id = ? AND approval IS NULL").run(id);
+
+    // 8. Record: file it in Box (never blocks the gavel; retried on the next boot).
+    if (!this.lastEvent(id, "record.filed")) await this.syncRecord(id);
+
+    // 9. Gavel
     if (!this.lastEvent(id, "case.closed")) {
       this.emit(id, "bailiff", "case.closed", "BANG! Court is adjourned.", { status: final });
     }
