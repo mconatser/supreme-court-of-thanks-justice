@@ -13,7 +13,7 @@
 - "It's a 50-50 chance."
 
 **When someone tries to bribe or trick the court (contempt!), they say:**
-- (Placeholder until Max writes his own: "Nice try! This court can't be bought, not even with gravy.")
+- "Not this time, buddy."
 
 **Gavel catchphrase:**
 - "The end!!!" (with lots of exclamation points)

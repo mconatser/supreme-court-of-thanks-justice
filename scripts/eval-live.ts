@@ -8,8 +8,12 @@
  * Jev drifts a few points between identical runs, so checks are on outcomes and bands, never
  * exact values. With --runs > 1 it reports the spread.
  */
-import { readdirSync, readFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createCourtContext } from "../src/court/context.ts";
+import { FINAL_STATUSES } from "../src/court/db.ts";
+import { checkExpectations } from "../test/caseExpect.ts";
 import { RecessError } from "../src/shared/budget.ts";
 import { loadConfig } from "../src/shared/config.ts";
 import type { Ollama } from "../src/shared/ollama.ts";
@@ -19,7 +23,18 @@ const args = process.argv.slice(2);
 const runs = Number(args[args.indexOf("--runs") + 1]) || 1;
 const only = args.includes("--only") ? args[args.indexOf("--only") + 1] : undefined;
 
-const cfg = loadConfig({ ...process.env, GATEWAY_MODE: "live" });
+// Real Jev only. Nothing else may touch real data: no Box records (and the local Family Code, so
+// results don't depend on Box), no email, no voice, no checkpoints, and a throwaway data dir.
+// (Before this, eval runs filed Case-0001.md versions into Box and wrote data/audio/case-1.mp3.)
+const evalEnv: Record<string, string | undefined> = {
+  ...process.env,
+  GATEWAY_MODE: "live",
+  DATA_DIR: mkdtempSync(join(tmpdir(), "fc-eval-")),
+  MISTRIAL_ENABLED: "false",
+  SUMMONS_TIMEOUT_MIN: "0", // one-sided cases go ahead in absentia instead of waiting
+};
+for (const k of ["BOX_FAMILY_CODE_FILE_ID", "BOX_RECORDS_FOLDER_ID", "BOX_BASE", "AGENTMAIL_INBOX_ID", "AGENTMAIL_BASE", "ELEVENLABS_BASE", "ELEVENLABS_VOICE_ID"]) delete evalEnv[k];
+const cfg = loadConfig(evalEnv);
 const files = readdirSync("test/cases").filter((f) => f.endsWith(".json") && (!only || f.includes(only))).sort();
 const cases = files.map((f) => ({ file: f, ...JSON.parse(readFileSync(`test/cases/${f}`, "utf8")) }));
 const aliases = [...new Set(cases.flatMap((c: any) => [c.plaintiff, c.defendant]))];
@@ -40,13 +55,15 @@ for (const tc of cases) {
       filedBy: "pro_se", filings: tc.filings ?? [],
     });
     await ctx.hearings.start(id);
+    // One-sided cases pause for a summons; with SUMMONS_TIMEOUT_MIN=0 they go ahead in absentia.
+    for (let i = 0; i < 600 && !FINAL_STATUSES.has(ctx.hearings.getCase(id)!.status); i++) await new Promise((r) => setTimeout(r, 100));
     const c = ctx.hearings.getCase(id)!;
     const ev = (kind: string) => {
       const row = ctx.db.prepare("SELECT data_json FROM events WHERE case_id = ? AND kind = ? ORDER BY id DESC").get(id, kind) as any;
       return row?.data_json ? JSON.parse(row.data_json) : undefined;
     };
     const trouble = ctx.db.prepare("SELECT message FROM events WHERE case_id = ? AND kind IN ('court.trouble','court.recess')").get(id) as any;
-    if (trouble) { results.push(`ERROR: ${trouble.message}`); continue; }
+    if (trouble) { results.push(`ERROR: ${trouble.message}`); failures++; continue; }
 
     const s = ev("screening.done");
     // One row per filing (a party can have several), so "spread" only ever means drift across runs.
@@ -57,14 +74,19 @@ for (const tc of cases) {
     for (const seat of r?.decision?.seats ?? []) {
       if (seat.status === "voted") (spreads[seat.key] ??= []).push(seat.probabilities.plaintiff);
     }
-    if (r?.decision) (spreads.case_confidence ??= []).push(r.decision.caseConfidence);
-    results.push(`${c.status}${r?.winner ? ` → ${r.winner}` : ""} [type ${c.type}]`);
-
-    const exp = tc.expect ?? {};
-    const ok =
-      (exp.contempt === undefined || (c.status === "contempt") === exp.contempt) &&
-      (exp.status === undefined || c.status === exp.status);
-    if (!ok) failures++;
+    if (r?.decision && r.decision.reason !== "tie") (spreads.case_confidence ??= []).push(r.decision.caseConfidence);
+    const prec = ev("precedent.checked");
+    const memory = r?.decision?.seats?.find((x: any) => x.key === "justice_memory");
+    const precNote = prec?.candidates?.length
+      ? ` | precedent ${prec.candidates.map((x: any) => `${x.ref} ${x.p.toFixed(2)}`).join(", ")}${memory?.status === "voted" ? ` → Memory cites ${memory.cites?.join(",")}` : ""}`
+      : "";
+    const arts = ev("articles.checked");
+    const checks = checkExpectations(ctx, id, tc.expect);
+    if (checks.some((x) => !x.ok)) failures++;
+    results.push(
+      `${c.status}${r?.winner ? ` → ${r.winner}` : ""}${r?.decision ? ` (${r.decision.vote})` : ""} [${c.type}]${arts ? ` | articles ${arts.allowed.join(",") || "none"}` : ""}${precNote}\n` +
+        checks.map((x) => `      ${x.ok ? "✓" : "✗"} ${x.name}: expected ${x.want}, got ${x.got}`).join("\n"),
+    );
     ctx.db.close();
   }
 

@@ -1,0 +1,25 @@
+{
+  "_note": "Drafted by Mark with Max (lines may change). Parties' lines become the claim and filings; the whole script is in _script. The relief line isn't in the script.",
+  "_script": [
+    "Hailey: Dad ate two pieces of pumpkin pie but left all his green beans on his plate.",
+    "Dad: Green beans don't count on Thanksgiving."
+  ],
+  "title": "The Green Bean Escape",
+  "plaintiff": "Hailey",
+  "defendant": "Dad",
+  "type_hint": "complaint",
+  "claim": "Dad ate two pieces of pumpkin pie but left all his green beans on his plate.",
+  "relief": "The court finds Dad broke the dessert rule.",
+  "filings": [
+    {
+      "author": "Dad",
+      "kind": "response",
+      "body": "Green beans don't count on Thanksgiving."
+    }
+  ],
+  "expect": {
+    "contempt": false,
+    "status": "ruled",
+    "outcome": "plaintiff"
+  }
+}

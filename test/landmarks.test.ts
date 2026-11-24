@@ -8,10 +8,20 @@ import { login, makeApp, makeCtx, TEST_ENV } from "./helpers.ts";
 const TEMPLATE = "test/fixtures/landmarks-sample.md";
 
 describe("landmark cases", () => {
-  it("ignores landmarks still marked as placeholders (content/landmark-cases.md today)", () => {
+  it("loads Max's landmarks from content/landmark-cases.md", () => {
     const { landmarks, warnings } = parseLandmarks(readFileSync("content/landmark-cases.md", "utf8"));
-    expect(landmarks).toEqual([]);
-    expect(warnings.join(" ")).toMatch(/L1 is still a placeholder.*L2 is still a placeholder/);
+    expect(warnings).toEqual([]);
+    expect(landmarks.map((l) => [l.ref, l.articles, l.vote])).toEqual([
+      ["L1", [1], "2–1"],
+      ["L2", [2], "3–0"],
+      ["L3", [4], "2–1"],
+    ]);
+  });
+
+  it("ignores a landmark still marked as a placeholder", () => {
+    const { landmarks, warnings } = parseLandmarks("## Landmark L1. (Placeholder: old example) Dibs\nQuestion: q\nOutcome: o\n\n## Landmark L2. Real one\nQuestion: q\nOutcome: o\n");
+    expect(landmarks.map((l) => l.ref)).toEqual(["L2"]);
+    expect(warnings.join(" ")).toMatch(/L1 is still a placeholder/);
   });
 
   it("parses landmarks: refs, questions, outcomes and articles", () => {

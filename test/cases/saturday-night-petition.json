@@ -1,0 +1,25 @@
+{
+  "_note": "Drafted by Mark with Max (lines may change). Parties' lines become the claim and filings; the whole script is in _script. The relief line isn't in the script.",
+  "_script": [
+    "Hailey: I want bedtime on Saturdays to be midnight instead of 11:30, because there's no school on Sunday.",
+    "Mom: 11:30 is already late enough."
+  ],
+  "title": "The Saturday Night Petition",
+  "plaintiff": "Hailey",
+  "defendant": "Mom",
+  "type_hint": "petition",
+  "claim": "I want bedtime on Saturdays to be midnight instead of 11:30, because there's no school on Sunday.",
+  "relief": "Bedtime on Saturdays is midnight.",
+  "filings": [
+    {
+      "author": "Mom",
+      "kind": "response",
+      "body": "11:30 is already late enough."
+    }
+  ],
+  "expect": {
+    "contempt": false,
+    "type": "petition",
+    "parent_ok_if_decided": true
+  }
+}

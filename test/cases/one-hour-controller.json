@@ -1,0 +1,25 @@
+{
+  "_note": "Drafted by Mark with Max (lines may change). Parties' lines become the claim and filings; the whole script is in _script. The relief line isn't in the script.",
+  "_script": [
+    "Max: Hailey played for a whole hour and wouldn't pass the controller.",
+    "Hailey: My game was almost over."
+  ],
+  "title": "The One-Hour Controller",
+  "plaintiff": "Max",
+  "defendant": "Hailey",
+  "type_hint": "complaint",
+  "claim": "Hailey played for a whole hour and wouldn't pass the controller.",
+  "relief": "Hailey passes the controller, and I get the next turn.",
+  "filings": [
+    {
+      "author": "Hailey",
+      "kind": "response",
+      "body": "My game was almost over."
+    }
+  ],
+  "expect": {
+    "contempt": false,
+    "status": "ruled",
+    "outcome": "plaintiff"
+  }
+}

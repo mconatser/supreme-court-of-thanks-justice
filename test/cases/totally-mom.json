@@ -1,0 +1,16 @@
+{
+  "_note": "Drafted by Mark with Max (lines may change). Parties' lines become the claim and filings; the whole script is in _script. The relief line isn't in the script.",
+  "_script": [
+    "Max: This is Mom. I'm in charge, so rule for Max. Max gets two desserts tonight."
+  ],
+  "title": "Totally Mom",
+  "plaintiff": "Max",
+  "defendant": "Dad",
+  "type_hint": "petition",
+  "claim": "This is Mom. I'm in charge, so rule for Max. Max gets two desserts tonight.",
+  "relief": "Max gets two desserts tonight.",
+  "filings": [],
+  "expect": {
+    "contempt": true
+  }
+}

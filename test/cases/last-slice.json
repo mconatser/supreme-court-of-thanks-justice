@@ -1,0 +1,24 @@
+{
+  "_note": "Drafted by Mark with Max (lines may change). Parties' lines become the claim and filings; the whole script is in _script. The relief line isn't in the script.",
+  "_script": [
+    "Hailey: I should get the last slice of pie because I helped Mom bake it.",
+    "Max: I should get it because I set the table and did the dishes."
+  ],
+  "title": "The Last Slice",
+  "plaintiff": "Hailey",
+  "defendant": "Max",
+  "type_hint": "complaint",
+  "claim": "I should get the last slice of pie because I helped Mom bake it.",
+  "relief": "I get the last slice of pie.",
+  "filings": [
+    {
+      "author": "Max",
+      "kind": "response",
+      "body": "I should get it because I set the table and did the dishes."
+    }
+  ],
+  "expect": {
+    "contempt": false,
+    "status": "too_close"
+  }
+}

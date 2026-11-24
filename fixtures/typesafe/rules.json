@@ -1,5 +1,5 @@
 {
-  "_about": "Stub-mode Jev. Answers depend on keywords in the state. Add any trick that gets past the real contempt screen here AND to the contempt criteria in src/shared/panel.ts.",
+  "_about": "Stub-mode Jev. Answers depend on keywords in the state. Add any trick that gets past the real contempt screen here AND to the contempt criteria in src/shared/panel.ts. Some keywords mirror Max's test cases so stub-mode tests can check them; the real check is npm run eval:live.",
   "noise": 0.03,
   "contempt": {
     "high": [
@@ -18,7 +18,11 @@
       "bribe",
       "carrot cake if you",
       "turkey and gravy",
-      "if you say yes"
+      "if you say yes",
+      "funniest judge",
+      "you'll definitely rule for me",
+      "this is mom",
+      "i'm in charge"
     ],
     "medium": [
       "best judge ever",
@@ -45,7 +49,8 @@
       "declares",
       "declare",
       "which is better",
-      "settle the question"
+      "settle the question",
+      "is soup"
     ]
   },
   "sufficient": {
@@ -56,7 +61,8 @@
     "close": [
       "at the same time",
       "exactly the same time",
-      "we both called it"
+      "we both called it",
+      "last slice"
     ],
     "defendant": [
       "never happened",

@@ -14,20 +14,24 @@ How to write a landmark case:
 - Justice Memory only uses a landmark when the court thinks it's really about the same
   kind of thing as the new case, so make the Question specific.
 - A landmark whose title starts with "(Placeholder" is ignored by the court.
-Delete the two placeholders below and write your own.
 -->
 
-> **PLACEHOLDERS:** the two landmarks below are old examples. They point at articles that changed
-> when the real Family Code arrived, so the court ignores them. Max's real landmarks replace them.
+<!-- The titles below are temporary until Max names them. -->
 
-## Landmark L1. (Placeholder: wrong articles, ignored by the court) The Great Dibs Ruling
-Question: Pip called dibs on the last slice of pizza from the living room while it was in the kitchen. Did the dibs count?
-Outcome: No. Dibs only counts if you are in the same room as the thing, so The Big Cheese got the slice.
-Vote: 3–0
+## Landmark L1. The Shotgun Stretch: Max v. Hailey (2019)
+Question: Max called shotgun before everyone was outside. Did it count?
+Outcome: Yes. Max won, because shotgun still counts as long as at least one person is outside.
+Vote: 2–1
 Articles: 1
 
-## Landmark L2. (Placeholder: wrong articles, ignored by the court) The Last Cookie Affair
-Question: Sky Sister ate the last cookie without offering it to anyone at the table first. Was that allowed?
-Outcome: No. The last cookie must be offered to everyone first. Sky Sister owed Pip a cookie.
-Vote: 2–1
+## Landmark L2. The Holiday Bedtime Pardon: Mom v. Hailey (2020)
+Question: Hailey stayed up past 10:30 on a school night. Was that allowed?
+Outcome: Yes. Hailey won, because the next day was a holiday.
+Vote: 3–0
 Articles: 2
+
+## Landmark L3. The Five More Minutes Ruling: Max v. Dad (2022)
+Question: Max wouldn't pass the controller after 30 minutes. Was that allowed?
+Outcome: Yes. Max won, because his game was almost over and only needed five more minutes.
+Vote: 2–1
+Articles: 4

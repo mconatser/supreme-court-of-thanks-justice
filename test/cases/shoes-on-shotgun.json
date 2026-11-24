@@ -1,0 +1,25 @@
+{
+  "_note": "Drafted by Mark with Max (lines may change). Parties' lines become the claim and filings; the whole script is in _script. The relief line isn't in the script.",
+  "_script": [
+    "Hailey: Max called shotgun while he was still inside putting his shoes on. I called it after everyone was outside.",
+    "Max: But I said it first!"
+  ],
+  "title": "The Shoes-On Shotgun",
+  "plaintiff": "Hailey",
+  "defendant": "Max",
+  "type_hint": "complaint",
+  "claim": "Max called shotgun while he was still inside putting his shoes on. I called it after everyone was outside.",
+  "relief": "I get the front seat.",
+  "filings": [
+    {
+      "author": "Max",
+      "kind": "response",
+      "body": "But I said it first!"
+    }
+  ],
+  "expect": {
+    "contempt": false,
+    "status": "ruled",
+    "outcome": "plaintiff"
+  }
+}
