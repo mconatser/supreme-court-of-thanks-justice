@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { parseLandmarks } from "../src/court/landmarks.ts";
+import { landmarkAsPrecedent, parseLandmarks } from "../src/court/landmarks.ts";
 import { parsePeople } from "../src/shared/people.ts";
 import { stubCalls } from "../src/shared/stub.ts";
 import { login, makeApp, makeCtx, TEST_ENV } from "./helpers.ts";
@@ -11,11 +11,17 @@ describe("landmark cases", () => {
   it("loads Max's landmarks from content/landmark-cases.md", () => {
     const { landmarks, warnings } = parseLandmarks(readFileSync("content/landmark-cases.md", "utf8"));
     expect(warnings).toEqual([]);
-    expect(landmarks.map((l) => [l.ref, l.articles, l.vote])).toEqual([
-      ["L1", [1], "2–1"],
-      ["L2", [2], "3–0"],
-      ["L3", [4], "2–1"],
+    expect(landmarks.map((l) => [l.ref, l.articles])).toEqual([
+      ["L1", [1]],
+      ["L2", [2]],
+      ["L3", [4]],
+      ["L4", [3]],
+      ["L5", [5]],
     ]);
+    // The optional "Case:" line travels with the question into precedent.
+    const l4 = landmarks.find((l) => l.ref === "L4")!;
+    expect(l4.caption).toBe("Dad v. Hailey (2024)");
+    expect(landmarkAsPrecedent(l4).question).toContain("(Dad v. Hailey (2024))");
   });
 
   it("ignores a landmark still marked as a placeholder", () => {

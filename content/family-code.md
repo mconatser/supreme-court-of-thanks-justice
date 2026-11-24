@@ -13,7 +13,7 @@ How to write a law:
 -->
 
 ## Article 1. Shotgun
-Whoever calls "shotgun" first after everyone is outside gets the front seat.
+Whoever calls shotgun gets it, but there has to be one other person to witness it.
 
 ## Article 2. Bedtime
 Bedtime is 10:30 on school nights and 11:30 on Fridays and Saturdays.

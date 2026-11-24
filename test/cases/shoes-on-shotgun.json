@@ -20,6 +20,7 @@
   "expect": {
     "contempt": false,
     "status": "ruled",
-    "outcome": "plaintiff"
-  }
+    "outcome": "defendant"
+  },
+  "_expect_note": "Max wins: under the new Article 1 (a witness is enough), Hailey's own line shows she witnessed his call."
 }

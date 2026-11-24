@@ -9,6 +9,8 @@ import type { Precedent } from "../shared/panel.ts";
 export interface Landmark {
   ref: string; // "L1"
   title: string;
+  /** Optional "Case: Dad v. Hailey (2024)" line. */
+  caption: string;
   question: string;
   outcome: string;
   vote: string;
@@ -34,6 +36,7 @@ export function parseLandmarks(md: string): LandmarkFile {
     const lm: Landmark = {
       ref,
       title: h[2].trim(),
+      caption: field("Case"),
       question: field("Question"),
       outcome: field("Outcome"),
       vote: field("Vote"),
@@ -61,7 +64,7 @@ export function landmarkAsPrecedent(lm: Landmark): Precedent {
     ref: lm.ref,
     title: lm.title,
     case: `Landmark ${lm.ref}`,
-    question: `${lm.title}: ${lm.question}`,
+    question: `${lm.title}${lm.caption ? ` (${lm.caption})` : ""}: ${lm.question}`,
     outcome: lm.outcome,
     vote: lm.vote,
     articles: lm.articles,

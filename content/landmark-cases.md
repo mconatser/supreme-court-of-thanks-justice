@@ -6,7 +6,8 @@ _Made-up historic rulings that Justice Memory can cite, even on a brand-new cour
 How to write a landmark case:
 - One landmark per main article of the Family Code.
 - Use court aliases only. Never real names.
-- Each landmark is a "## Landmark L<number>. Title" heading followed by four lines:
+- Each landmark is a "## Landmark L<number>. Title" heading followed by four lines
+  (plus an optional "Case: Who v. Who (year)" line):
     Question: what the court had to decide
     Outcome: what it decided, and why (one or two sentences)
     Vote: 3–0 or 2–1
@@ -33,3 +34,17 @@ Question: Max wouldn't pass the controller after 30 minutes. Was that allowed?
 Outcome: Yes. Max won, because his game was almost over and only needed five more minutes.
 Vote: 2–1
 Articles: 4
+
+## Landmark L4. The Amazing Dessert v. Stuffing
+Case: Dad v. Hailey (2024)
+Question: Hailey wanted dessert but didn't finish her stuffing.
+Outcome: Dad won, because the stuffing was delicious.
+Vote: 2–1, with Justice Grace dissenting in her own voice
+Articles: 3
+
+## Landmark L5. The Clean It Up Case
+Case: Max v. Mom (2023)
+Question: Max made a mess with coffee and didn't clean it up.
+Outcome: Mom won, because you clean up messes after you make them.
+Vote: 3–0
+Articles: 5
