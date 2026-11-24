@@ -15,7 +15,7 @@ import {
   startSession,
 } from "../shared/auth.ts";
 import type { CourtContext } from "./context.ts";
-import { linkParties, FINAL_STATUSES, OPEN_STATUSES, type EventRow } from "./db.ts";
+import { linkParties, FINAL_STATUSES, OPEN_STATUSES, type CaseRow, type EventRow } from "./db.ts";
 import { labelsFor } from "./labels.ts";
 import { loadPeople, PeopleError, publicParty } from "../shared/people.ts";
 import { landmarkAsPrecedent } from "./landmarks.ts";
@@ -23,7 +23,7 @@ import { AppealError, ApprovalError, RemarkError, SummonsError } from "./hearing
 import { MistrialError } from "./mistrial.ts";
 import { caseLabel } from "./precedent.ts";
 import { findPrecedent } from "./precedent.ts";
-import { caseView, docketView, publicEvent } from "./views.ts";
+import { caseView, docketView, publicEvent, tokenCaseView } from "./views.ts";
 
 export const LIMITS = { filing: 1500, relief: 300, title: 120, testimony: 1000 };
 export const RECESS_MESSAGE = "Court is in recess until tomorrow.";
@@ -231,6 +231,11 @@ export function createCourtApp(ctx: CourtContext, opts: CourtAppOptions = {}) {
   app.get("/cases/:n{[0-9]+}/stream", requireTokenOrRole(cfg, "court"), (c) => {
     const k = ctx.hearings.getCaseByNumber(Number(c.req.param("n")));
     if (!k) return c.json({ error: "The court can't find that case." }, 404);
+    return streamCase(c, k);
+  });
+
+  /** One case's hearing as SSE: replay from Last-Event-ID, then live, heartbeats, closes when final. */
+  function streamCase(c: Context, k: CaseRow) {
     const after = Number(c.req.header("last-event-id") ?? c.req.query("after") ?? 0) || 0;
 
     // Keep proxies from buffering the stream; heartbeats keep it (and the Sprite) awake.
@@ -303,6 +308,45 @@ export function createCourtApp(ctx: CourtContext, opts: CourtAppOptions = {}) {
     });
     res.headers.set("Cache-Control", "no-cache, no-transform"); // streamSSE sets plain no-cache
     return res;
+  }
+
+  // ---------- one case by token (no passcode) ----------
+  // A summoned party's summons token, or a view token from a ruling email, opens that one case,
+  // read-only: the hearing live, the ruling card and the verdict. Nothing else.
+
+  const viewCase = (c: Context) => {
+    const caseId = ctx.hearings.resolveViewToken(c.req.param("token")!);
+    return caseId ? ctx.hearings.getCase(caseId) ?? null : null;
+  };
+  const caseHtml = () => readFileSync(`${publicDir}/case.html`, "utf8");
+
+  app.get(`/v/:token${TOKEN}`, (c) => {
+    const k = viewCase(c);
+    if (!k) return c.html("<p style=\"font-family:system-ui;padding:24px\">The court can't find that case. The link may be wrong.</p>", 404);
+    const token = c.req.param("token");
+    const config = JSON.stringify({ number: k.number, caseUrl: `/api/v/${token}/case`, streamUrl: `/api/v/${token}/stream`, readOnly: true });
+    return c.html(caseHtml().replace('<script src="/js/case.js">', `<script>window.FC_CASE = ${config};</script>\n<script src="/js/case.js">`));
+  });
+
+  app.get(`/api/v/:token${TOKEN}/case`, (c) => {
+    const k = viewCase(c);
+    if (!k) return c.json({ error: "The court can't find that case." }, 404);
+    return c.json(tokenCaseView(k, ctx, c.req.param("token")!));
+  });
+
+  app.get(`/api/v/:token${TOKEN}/stream`, (c) => {
+    const k = viewCase(c);
+    if (!k) return c.json({ error: "The court can't find that case." }, 404);
+    return streamCase(c, k);
+  });
+
+  app.get(`/api/v/:token${TOKEN}/verdict.mp3`, (c) => {
+    const k = viewCase(c);
+    if (!k) return c.json({ error: "The court can't find that case." }, 404);
+    const round = c.req.query("round") === "1" ? 1 : 0;
+    if (!ctx.voice.hasAudio(k.number, round)) return c.json({ error: "The judge hasn't recorded this verdict." }, 404);
+    const bytes = readFileSync(ctx.voice.audioPath(k.number, round));
+    return c.body(bytes, 200, { "content-type": "audio/mpeg", "cache-control": "private, max-age=86400", "content-length": String(bytes.length) });
   });
 
   // ---------- parent passcode ----------

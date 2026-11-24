@@ -537,7 +537,8 @@ export class Hearings {
   private async sendNotices(caseId: number, ruling: RulingData, opts: { headline?: string; kind?: string } = {}) {
     const c = this.getCase(caseId)!;
     const L = labelsFor(this.ctx.people, c);
-    const url = `${this.ctx.cfg.PUBLIC_BASE_URL.replace(/\/+$/, "")}/cases/${c.number}`;
+    // Each recipient gets their own link to this one case: no passcode needed (see /v/:token).
+    const linkFor = (pid: string) => `${this.ctx.cfg.PUBLIC_BASE_URL.replace(/\/+$/, "")}/v/${this.viewTokenFor(caseId, pid)}`;
     const label = caseLabel(c.number);
     const title = L.relabel(c.title);
     const headline = opts.headline ??
@@ -552,8 +553,8 @@ export class Hearings {
       if (!person?.email) continue;
       const contemnorId = ruling.kind === "contempt" ? (pid === c.plaintiff_id && ruling.contemnor === c.plaintiff) || (pid === c.defendant_id && ruling.contemnor === c.defendant) : false;
       const l = contemnorId
-        ? contemptLetter({ court: this.ctx.cast.court, alias: person.alias, caseLabel: label, title, sentence: ruling.sentenceText ?? "", url })
-        : rulingLetter({ court: this.ctx.cast.court, alias: person.alias, caseLabel: label, title, headline, url });
+        ? contemptLetter({ court: this.ctx.cast.court, alias: person.alias, caseLabel: label, title, sentence: ruling.sentenceText ?? "", url: linkFor(pid) })
+        : rulingLetter({ court: this.ctx.cast.court, alias: person.alias, caseLabel: label, title, headline, url: linkFor(pid) });
       if ((await this.ctx.mailer.send(person, l)) === "sent") sent.push(person.alias);
     }
     if (sent.length) this.emit(caseId, "clerk", opts.kind ?? "notices.sent", `The clerk emails notice of the ruling to ${sent.join(" and ")}.`, { sent });
@@ -914,6 +915,27 @@ export class Hearings {
     this.emit(c.id, "clerk", "testimony.received", `${alias} has answered the summons. The hearing continues!`);
     void this.start(c.id);
     return { caseNumber: c.number };
+  }
+
+  /** The one case a summons token or a view token (from a ruling email) opens, read-only. */
+  resolveViewToken(token: string): number | null {
+    const s = this.ctx.db.prepare("SELECT case_id FROM summons WHERE token = ?").get(token) as { case_id: number } | undefined;
+    if (s) return s.case_id;
+    const l = this.ctx.db.prepare("SELECT case_id FROM case_links WHERE token = ?").get(token) as { case_id: number } | undefined;
+    return l?.case_id ?? null;
+  }
+
+  /** A person's link to one case: their summons token if they were summoned, otherwise a view token. */
+  viewTokenFor(caseId: number, personId: string): string {
+    const s = this.ctx.db.prepare("SELECT token FROM summons WHERE case_id = ? AND person_id = ? ORDER BY id DESC LIMIT 1").get(caseId, personId) as
+      | { token: string }
+      | undefined;
+    if (s) return s.token;
+    const existing = this.ctx.db.prepare("SELECT token FROM case_links WHERE case_id = ? AND person_id = ?").get(caseId, personId) as { token: string } | undefined;
+    if (existing) return existing.token;
+    const token = randomBytes(32).toString("base64url");
+    this.ctx.db.prepare("INSERT INTO case_links(token, case_id, person_id, created_at) VALUES (?, ?, ?, ?)").run(token, caseId, personId, Date.now());
+    return token;
   }
 
   summonsByToken(token: string): SummonsRow | undefined {

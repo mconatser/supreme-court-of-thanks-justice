@@ -1,6 +1,15 @@
 "use strict";
 (async function () {
-  const n = Number(location.pathname.split("/")[2]);
+  // /cases/:n (court passcode) or /v/:token (one case, read-only, set up by the server in FC_CASE).
+  const CFG = window.FC_CASE || {};
+  const n = CFG.number || Number(location.pathname.split("/")[2]);
+  const caseUrl = CFG.caseUrl || `/api/cases/${n}`;
+  const streamUrl = CFG.streamUrl || `/cases/${n}/stream`;
+  const readOnly = !!CFG.readOnly;
+  if (readOnly) {
+    const back = document.querySelector(".bar .back");
+    if (back) back.replaceWith(el("span", { class: "seal" }, "⚖️"));
+  }
   const transcript = document.getElementById("transcript");
   const thinking = document.getElementById("thinking");
   const note = document.getElementById("stream-note");
@@ -17,7 +26,7 @@
   let latestCase = null;
   async function refresh() {
     const mine = ++refreshSeq;
-    const c = await api(`/api/cases/${n}`);
+    const c = await api(caseUrl);
     if (mine !== refreshSeq) return latestCase || c; // a newer refresh is on its way
     latestCase = c;
     document.getElementById("case-title").textContent = `${c.label}: ${c.title}`;
@@ -28,8 +37,12 @@
     renderFilings(c.filings);
     renderSummons(c.summons || []);
     renderRuling(c);
-    renderAppeal(c);
-    renderMistrial(c);
+    if (!readOnly) {
+      renderAppeal(c);
+      renderMistrial(c);
+    } else if (c.status === "vacated") {
+      renderMistrial(c); // only the "never happened" banner; no controls
+    }
     return c;
   }
 
@@ -325,7 +338,7 @@
 
   function connect() {
     note.textContent = "";
-    es = new EventSource(`/cases/${n}/stream?after=${lastId}`);
+    es = new EventSource(`${streamUrl}?after=${lastId}`);
     es.addEventListener("court", (m) => {
       addEvent(JSON.parse(m.data));
     });
@@ -344,8 +357,11 @@
 
   try {
     const c = await refresh();
-    const d = await api("/api/docket").catch(() => null);
-    if (d) setCourtName(d.cast && d.cast.court);
+    if (readOnly) setCourtName(c.court);
+    else {
+      const d = await api("/api/docket").catch(() => null);
+      if (d) setCourtName(d.cast && d.cast.court);
+    }
     thinking.hidden = c.final;
     liveSession = !c.final; // only bang the gavel for hearings watched live
     connect();

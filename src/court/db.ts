@@ -74,6 +74,15 @@ CREATE TABLE IF NOT EXISTS summons (
   answered_at INTEGER
 );
 
+-- Read-only links to one case (in ruling emails), for people who don't have the court passcode.
+CREATE TABLE IF NOT EXISTS case_links (
+  token TEXT PRIMARY KEY,
+  case_id INTEGER NOT NULL REFERENCES cases(id),
+  person_id TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  UNIQUE(case_id, person_id)
+);
+
 CREATE TABLE IF NOT EXISTS budget (
   day TEXT NOT NULL,
   key TEXT NOT NULL,

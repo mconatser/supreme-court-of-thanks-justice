@@ -56,6 +56,8 @@ export const ConfigSchema = z.object({
 
   /** The lawyer's client: their court alias (from the court's party list). */
   LAWYER_CLIENT: opt,
+  /** On a courthouse-only Sprite (MODE=court): where /lawyer redirects, e.g. https://fc-lawyer-<org>.sprites.app */
+  LAWYER_URL: opt,
 
   DATA_DIR: str("data"),
   PEOPLE_FILE: str("people.json"),

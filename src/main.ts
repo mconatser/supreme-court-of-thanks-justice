@@ -1,15 +1,7 @@
-import { readFileSync } from "node:fs";
 import { serve } from "@hono/node-server";
-import { serveStatic } from "@hono/node-server/serve-static";
-import { Hono } from "hono";
-import { createCourtApp } from "./court/app.ts";
-import { createCourtContext } from "./court/context.ts";
-import { createLawyer, createLawyerApp } from "./lawyer/app.ts";
+import { buildApp } from "./server.ts";
 import { ConfigError, loadConfig } from "./shared/config.ts";
-import { rolesForPasscode, startSession } from "./shared/auth.ts";
 import { loadPeople, PeopleError } from "./shared/people.ts";
-
-const bootedAt = Date.now();
 
 function fail(err: unknown): never {
   if (err instanceof ConfigError || err instanceof PeopleError) {
@@ -28,32 +20,11 @@ try {
   fail(err);
 }
 
-const app = new Hono();
-const runsCourt = cfg.MODE === "all" || cfg.MODE === "court";
-const runsLawyer = cfg.MODE === "all" || cfg.MODE === "lawyer";
-
-// The lawyer only talks to the court over HTTP (COURT_URL), even when both run in this process.
-const lawyer = runsLawyer ? createLawyer(cfg) : null;
-if (lawyer) app.route("/lawyer", createLawyerApp(lawyer.lawyer, lawyer.ctx, { gateway: lawyer.gateway }));
-
-const ctx = runsCourt ? createCourtContext(cfg, people) : null;
-if (ctx) app.route("/", createCourtApp(ctx));
-else {
-  // Lawyer-only Sprite: its own passcode login and the shared static files.
-  app.get("/", (c) => c.redirect("/lawyer"));
-  app.get("/login", (c) => c.html(readFileSync("public/login.html", "utf8")));
-  app.post("/login", async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as { passcode?: unknown };
-    const roles = rolesForPasscode(cfg, String(body.passcode ?? "")).filter((r) => r === "lawyer");
-    if (!roles.length) return c.json({ error: "That passcode isn't right. Try again!" }, 401);
-    return c.json({ ok: true, roles: await startSession(c, cfg, roles) });
-  });
-  for (const dir of ["css", "js", "sfx"]) app.use(`/${dir}/*`, serveStatic({ root: "public" }));
-  app.get("/healthz", (c) => c.json({ ok: true, bootedAt, uptimeMs: Date.now() - bootedAt, deployId: null }));
-}
+const { app, court: ctx, lawyer } = buildApp(cfg, people);
 
 const server = serve({ fetch: app.fetch, port: cfg.PORT }, (info) => {
   console.log(`[main] listening on port ${info.port} (MODE=${cfg.MODE}, GATEWAY_MODE=${cfg.GATEWAY_MODE})`);
+  if (!lawyer) console.log(`[main] no lawyer here; /lawyer ${cfg.LAWYER_URL ? `redirects to ${cfg.LAWYER_URL}` : "is not served (set LAWYER_URL to redirect)"}`);
   if (ctx) {
     console.log(`[court] ${ctx.cast.court} is in session`);
     void ctx.familyCode.refresh(true).then(() => console.log(`[court] Family Code from ${ctx.familyCode.where.source}`));

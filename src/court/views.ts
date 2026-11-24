@@ -205,6 +205,28 @@ export function caseView(c: CaseRow, ctx: CourtContext, roles: string[] = []) {
   };
 }
 
+/**
+ * The case as someone with only a token sees it (a summoned party, or a ruling-email link):
+ * read-only, no controls, no other person's summons link, and token-scoped verdict audio.
+ */
+export function tokenCaseView(c: CaseRow, ctx: CourtContext, token: string) {
+  const v = caseView(c, ctx, []);
+  const ruling = v.ruling && {
+    ...v.ruling,
+    voice: v.ruling.voice.url ? { ...v.ruling.voice, url: `/api/v/${token}/verdict.mp3${v.ruling.round ? "?round=1" : ""}` } : v.ruling.voice,
+  };
+  return {
+    ...v,
+    court: ctx.cast.court,
+    readOnly: true,
+    viewer: { isParent: false },
+    summons: v.summons.map((s) => ({ ...s, url: null })),
+    appeal: { ...v.appeal, canAppeal: false },
+    mistrial: { offered: false },
+    ruling,
+  };
+}
+
 export function docketView(ctx: CourtContext, roles: string[] = []) {
   const cases = ctx.db.prepare("SELECT * FROM cases ORDER BY number DESC LIMIT 100").all() as CaseRow[];
   const code = ctx.familyCode.load();

@@ -29,9 +29,15 @@
     el("blockquote", { class: "filing" }, el("div", { class: "body" }, s.claim), el("div", { class: "by", style: "margin-top:6px" }, `They want: ${s.relief}`)),
   );
 
+  // This same link follows the case: once answered (or expired), it opens the hearing and the ruling.
+  const follow = () => location.replace(`/v/${token}`);
   if (s.status !== "pending") {
     document.getElementById("heading").textContent = s.status === "answered" ? "Thanks, the court heard you!" : "This summons has expired";
-    details.append(el("p", { class: "muted" }, s.status === "answered" ? "Your testimony is in the record." : "The court decided without you this time."));
+    details.append(
+      el("p", { class: "muted" }, s.status === "answered" ? "Your testimony is in the record." : "The court decided without you this time."),
+      el("a", { class: "btn", href: `/v/${token}` }, "⚖️ Follow the case"),
+    );
+    setTimeout(follow, 1500);
     return;
   }
   form.hidden = false;
@@ -45,7 +51,8 @@
       await api(`/summons/${token}`, { json: { testimony: ta.value } });
       form.hidden = true;
       document.getElementById("heading").textContent = "Thanks, the court heard you!";
-      details.append(el("p", {}, "🔨 The hearing continues now. The court will send its ruling soon."));
+      details.append(el("p", {}, "🔨 The hearing continues now. Let's watch…"));
+      setTimeout(follow, 1200);
     } catch (ex) {
       err.textContent = ex.message;
       btn.disabled = false;

@@ -84,6 +84,28 @@ For each connector, open its access settings and set the name prefix:
 - [ ] Run `bash scripts/smoke.sh` on `fc-court`. Everything should still pass there.
 - [ ] Take a checkpoint: `sprite exec -s fc-lawyer -- sprite-env checkpoints create --comment "fc-lawyer: split done"`.
 
+## 6. Make `fc-court` courthouse-only
+
+Once `fc-lawyer` works, the only lawyer should be on `fc-lawyer`. On `fc-court`, edit `~/family-court/.env`:
+
+| Key | Change |
+|---|---|
+| `MODE` | `all` → `court` |
+| `LAWYER_URL` | add `https://fc-lawyer-wc3u.sprites.app` (`fc-court`'s `/lawyer` redirects there) |
+| `LAWYER_CLIENT` | can go: nothing on `fc-court` uses it now |
+
+Leave everything else alone. `COURT_TOKEN` must still match `fc-lawyer`'s, and `LAWYER_PASSCODE` can stay. Then restart (or redeploy):
+
+```bash
+sprite exec -s fc-court -- sprite-env services restart court
+```
+
+Check it:
+- [ ] The log says `no lawyer here; /lawyer redirects to https://fc-lawyer-wc3u.sprites.app`.
+- [ ] Opening `fc-court`'s `/lawyer` lands on `fc-lawyer`.
+
+`fc-court`'s old `data/lawyer.db` stays on disk, unused. Cases filed by the old in-court lawyer before the switch keep their court records, but `fc-lawyer` doesn't track their predictions.
+
 ## Redeploying
 
 ```bash

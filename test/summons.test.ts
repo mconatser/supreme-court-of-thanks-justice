@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { Person } from "../src/shared/people.ts";
 import { stubCalls, stubMail } from "../src/shared/stub.ts";
-import { login, makeApp, TEST_PEOPLE } from "./helpers.ts";
+import { login, makeApp, readSSE, TEST_PEOPLE } from "./helpers.ts";
+
+const readSSEText = (res: Response) => readSSE(res, (t) => t.includes("event: end"));
 
 const MAIL_ENV = { AGENTMAIL_INBOX_ID: "clerk@example.agentmail.to", PUBLIC_BASE_URL: "https://court.example" };
 const withEmail = (ids: string[]): Person[] =>
@@ -197,7 +199,11 @@ describe("notices", () => {
     const { id } = m.ctx.hearings.file(BOTH);
     await m.ctx.hearings.start(id);
     expect(stubMail.sent.map((x) => [x.to[0], x.subject])).toEqual([["p2@example.com", "Notice of ruling: Case #0001, Pip v. Sky Sister"]]);
-    expect(stubMail.sent[0].text).toContain("https://court.example/cases/1");
+    // "Read the ruling" opens this one case with a token: no passcode needed.
+    const link = stubMail.sent[0].text.match(/https:\/\/court\.example\/v\/([A-Za-z0-9_-]{43})/);
+    expect(link).toBeTruthy();
+    const view = await (await m.app.request(`/api/v/${link![1]}/case`)).json();
+    expect(view).toMatchObject({ number: 1, readOnly: true, final: true });
     const ev = m.ctx.db.prepare("SELECT message FROM events WHERE case_id = ? AND kind = 'notices.sent'").get(id) as { message: string };
     expect(ev.message).toBe("The clerk emails notice of the ruling to Pip.");
   });
@@ -216,5 +222,52 @@ describe("notices", () => {
     await m.ctx.hearings.start(id);
     expect(stubMail.sent).toHaveLength(0);
     expect(kinds(m, id)).not.toContain("notices.sent");
+  });
+});
+
+describe("following the case by token (no passcode)", () => {
+  async function answered(env: Record<string, string> = {}) {
+    const m = setup(env, ["p2", "p3"]);
+    const { id } = m.ctx.hearings.file(ONE_SIDED);
+    await m.ctx.hearings.start(id);
+    const token = tokenOf(m, id);
+    await testify(m, token, "I was in the car first, so the seat was mine.");
+    expect(await until(() => m.ctx.hearings.getCase(id)!.status === "ruled")).toBe(true);
+    return { m, id, token };
+  }
+
+  it("the summons token opens that case read-only: ruling, no controls, no summons links", async () => {
+    const { m, token } = await answered();
+    const v = await (await m.app.request(`/api/v/${token}/case`)).json();
+    expect(v).toMatchObject({ number: 1, readOnly: true, court: m.ctx.cast.court, viewer: { isParent: false }, mistrial: { offered: false } });
+    expect(v.appeal.canAppeal).toBe(false);
+    expect(v.summons.every((x: any) => x.url === null)).toBe(true);
+    expect(v.ruling.seats).toHaveLength(3);
+    expect(JSON.stringify(v)).not.toContain(token); // never echoes a token back
+  });
+
+  it("the summoned party's ruling email links to their own summons token; others get their own view token", async () => {
+    const { m, token } = await answered();
+    const links = Object.fromEntries(
+      stubMail.sent.filter((x) => x.subject.startsWith("Notice of ruling")).map((x) => [x.to[0], x.text.match(/\/v\/([A-Za-z0-9_-]{43})/)![1]]),
+    );
+    expect(links["p3@example.com"]).toBe(token); // Sky Sister was summoned
+    expect(links["p2@example.com"]).not.toBe(token); // Pip gets a view token of his own
+    expect((await m.app.request(`/api/v/${links["p2@example.com"]}/case`)).status).toBe(200);
+  });
+
+  it("the page, the stream and the verdict audio are token-scoped; bad tokens get nothing", async () => {
+    const { m, token } = await answered();
+    const page = await (await m.app.request(`/v/${token}`)).text();
+    expect(page).toContain(`window.FC_CASE = {"number":1,"caseUrl":"/api/v/${token}/case","streamUrl":"/api/v/${token}/stream","readOnly":true}`);
+    const events = (await readSSEText(await m.app.request(`/api/v/${token}/stream`))).split("\n\n").filter((b) => b.includes("event: court"));
+    expect(events.length).toBeGreaterThan(5);
+    expect(events.at(-1)).toContain("case.closed");
+    const bad = "x".repeat(43);
+    expect((await m.app.request(`/v/${bad}`)).status).toBe(404);
+    expect((await m.app.request(`/api/v/${bad}/case`)).status).toBe(404);
+    expect((await m.app.request(`/api/v/${bad}/stream`)).status).toBe(404);
+    // A token opens its own case only: there's no way to name another case on these routes.
+    expect((await m.app.request(`/api/cases/1`)).status).toBe(401);
   });
 });

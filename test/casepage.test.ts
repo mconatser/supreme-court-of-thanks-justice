@@ -48,6 +48,7 @@ const baseCase = (over: Record<string, unknown> = {}) => ({
 let current: ReturnType<typeof baseCase>;
 /** Per-request delays (ms) for /api/cases/1, in request order: lets a test answer out of order. */
 let delays: number[] = [];
+const fetched: string[] = [];
 const tick = () => new Promise((r) => setTimeout(r, 0));
 async function settle() {
   for (let i = 0; i < 10; i++) await tick();
@@ -59,10 +60,11 @@ function loadPage() {
   window.history.replaceState({}, "", "/cases/1");
   (globalThis as any).EventSource = FakeEventSource;
   (globalThis as any).fetch = async (url: string) => {
+    fetched.push(url);
     const snapshot = current; // what the server says at request time…
-    const delay = url.startsWith("/api/cases/1") ? (delays.shift() ?? 0) : 0;
+    const delay = url.startsWith("/api/cases/1") || url.startsWith("/api/v/") ? (delays.shift() ?? 0) : 0;
     if (delay) await new Promise((r) => setTimeout(r, delay)); // …but it may answer late
-    const body = url.startsWith("/api/cases/1")
+    const body = url.startsWith("/api/cases/1") || url.startsWith("/api/v/")
       ? snapshot
       : url.startsWith("/api/docket")
         ? { cast: { court: "The Supreme Court of Thanks-Justice" } }
@@ -81,6 +83,8 @@ function loadPage() {
 beforeEach(() => {
   FakeEventSource.last = null;
   delays = [];
+  fetched.length = 0;
+  delete (window as any).FC_CASE;
   current = baseCase();
 });
 
@@ -131,5 +135,26 @@ describe("case page, live from the stream", () => {
     FakeEventSource.last!.emit("court", { id: 9, ts: Date.now(), actor: "clerk", kind: "testimony.received", message: "Dad has answered the summons." });
     await settle();
     expect(document.querySelector("#summons-slot a.btn")).toBeNull();
+  });
+});
+
+describe("case page by token (/v/:token, read-only)", () => {
+  it("uses only the token's URLs, never the passcode APIs, and shows no appeal form", async () => {
+    (window as any).FC_CASE = { number: 1, caseUrl: "/api/v/tok/case", streamUrl: "/api/v/tok/stream", readOnly: true };
+    current = baseCase({
+      status: "ruled",
+      final: true,
+      court: "The Supreme Court of Thanks-Justice",
+      appeal: { status: null, canAppeal: true, parties: ["Max", "Dad"] }, // even if it said so
+      ruling: { outcome: "plaintiff", winner: "Max", vote: "2–0", confidencePct: 80, seats: [], sentence: null, citedArticles: [], voice: { status: "none" } },
+    });
+    loadPage();
+    await settle();
+    expect(fetched.filter((u) => !u.startsWith("/healthz"))).toEqual(["/api/v/tok/case"]);
+    expect(FakeEventSource.last!.url).toBe("/api/v/tok/stream?after=0");
+    expect(document.querySelector("#appeal-slot")!.children).toHaveLength(0);
+    expect(document.querySelector(".bar .back")).toBeNull(); // no "‹ Docket" link
+    expect(document.querySelector("[data-court-name]")!.textContent).toBe("The Supreme Court of Thanks-Justice");
+    expect(document.querySelector(".ruling-card")!.textContent).toContain("Ruling for Max");
   });
 });
