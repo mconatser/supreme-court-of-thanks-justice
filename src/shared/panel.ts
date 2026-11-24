@@ -146,6 +146,19 @@ export function precedentRelevanceQuestion(ref: string): NoulQuestion {
   };
 }
 
+/** Keep precedents Jev judged relevant (P >= 0.7), most relevant first, at most 8. */
+export function keepRelevant<P extends { ref?: string }>(candidates: P[], answers: Record<string, { noul?: number } | undefined>) {
+  const scored = candidates.map((p) => ({ p, relevance: Number(answers[`relevant_${p.ref}`]?.noul ?? 0) }));
+  return {
+    scored,
+    kept: scored
+      .filter((x) => x.relevance >= THRESHOLDS.yes)
+      .sort((a, b) => b.relevance - a.relevance)
+      .slice(0, 8)
+      .map((x) => x.p),
+  };
+}
+
 export function newEvidenceQuestion(): NoulQuestion {
   return {
     type: "noul",

@@ -51,6 +51,9 @@ export const ConfigSchema = z.object({
   /** Budgets reset at midnight in this time zone. */
   COURT_TZ: str("America/New_York"),
 
+  /** The lawyer's client: their court alias (from the court's party list). */
+  LAWYER_CLIENT: opt,
+
   DATA_DIR: str("data"),
   PEOPLE_FILE: str("people.json"),
   CONTENT_DIR: str("content"),

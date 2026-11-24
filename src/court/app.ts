@@ -17,7 +17,8 @@ import {
 import type { CourtContext } from "./context.ts";
 import { linkParties, FINAL_STATUSES, OPEN_STATUSES, type EventRow } from "./db.ts";
 import { labelsFor } from "./labels.ts";
-import { loadPeople, PeopleError } from "../shared/people.ts";
+import { loadPeople, PeopleError, publicParty } from "../shared/people.ts";
+import { landmarkAsPrecedent } from "./landmarks.ts";
 import { ApprovalError, SummonsError } from "./hearing.ts";
 import { caseLabel } from "./precedent.ts";
 import { findPrecedent } from "./precedent.ts";
@@ -141,7 +142,7 @@ export function createCourtApp(ctx: CourtContext, opts: CourtAppOptions = {}) {
 
   app.get("/api/docket", court, async (c) => c.json(docketView(ctx, await getRoles(c, cfg))));
 
-  app.get("/api/cases/:n{[0-9]+}", court, async (c) => {
+  app.get("/api/cases/:n{[0-9]+}", requireTokenOrRole(cfg, "court"), async (c) => {
     const k = ctx.hearings.getCaseByNumber(Number(c.req.param("n")));
     if (!k) return c.json({ error: "The court can't find that case." }, 404);
     return c.json(caseView(k, ctx, await getRoles(c, cfg)));
@@ -194,7 +195,7 @@ export function createCourtApp(ctx: CourtContext, opts: CourtAppOptions = {}) {
     return c.json({ number, url: `/cases/${number}` }, 201);
   });
 
-  app.get("/cases/:n{[0-9]+}/stream", court, (c) => {
+  app.get("/cases/:n{[0-9]+}/stream", requireTokenOrRole(cfg, "court"), (c) => {
     const k = ctx.hearings.getCaseByNumber(Number(c.req.param("n")));
     if (!k) return c.json({ error: "The court can't find that case." }, 404);
     const after = Number(c.req.header("last-event-id") ?? c.req.query("after") ?? 0) || 0;
@@ -297,7 +298,18 @@ export function createCourtApp(ctx: CourtContext, opts: CourtAppOptions = {}) {
     return c.json({ text: code.text, articles: code.articles, sentencing: code.sentencing, warnings: code.warnings, origin: ctx.familyCode.where });
   });
 
-  app.get("/api/precedent", requireCourtToken(cfg), (c) => c.json({ precedent: findPrecedent(ctx.db, c.req.query("q") ?? "") }));
+  /** Keyword matches plus every landmark: the caller runs the relevance check, like a hearing does. */
+  app.get("/api/precedent", requireCourtToken(cfg), (c) =>
+    c.json({
+      precedent: [
+        ...ctx.landmarks.load().landmarks.map(landmarkAsPrecedent),
+        ...findPrecedent(ctx.db, c.req.query("q") ?? "", { ignore: ctx.people.map((p) => p.alias) }),
+      ],
+    }),
+  );
+
+  /** Who can be a party: aliases and roles only. */
+  app.get("/api/parties", requireCourtToken(cfg), (c) => c.json({ parties: ctx.people.map(publicParty) }));
 
   app.post("/api/cases", requireCourtToken(cfg), async (c) => {
     if (!ctx.budget.inSession()) return c.json({ error: RECESS_MESSAGE }, 503);

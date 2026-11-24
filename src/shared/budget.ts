@@ -2,7 +2,9 @@
  * Daily spend guards. Pay As You Go has no caps, so these counters are the guardrail.
  * When one runs out, the court is "in recess until tomorrow" (HTTP 503).
  */
-import type { DB } from "../court/db.ts";
+import type Database from "better-sqlite3";
+
+type DB = Database.Database;
 
 export type BudgetKey = "jev" | "ollama" | "tts_chars" | "email";
 

@@ -18,6 +18,7 @@ import {
   decide,
   deliberationQuestions,
   JUSTICE_KEYS,
+  keepRelevant,
   precedentRelevanceQuestion,
   RECUSAL,
   sufficiencyQuestion,
@@ -501,16 +502,10 @@ export class Hearings {
         past_rulings: candidates,
       };
       const res = await this.ctx.jev.ask(state, questions);
-      const answers = res.answers as Record<string, { noul: number }>;
-      const scored = candidates.map((p) => ({ p, relevance: Number(answers[`relevant_${p.ref}`]?.noul ?? 0) }));
+      const { scored, kept } = keepRelevant(candidates, res.answers as Record<string, { noul: number }>);
       check = {
         candidates: scored.map(({ p, relevance }) => ({ ref: p.ref!, number: p.number, title: p.title ?? "", p: relevance })),
-        // Most relevant first; the state carries at most 8 precedents.
-        kept: scored
-          .filter((x) => x.relevance >= THRESHOLDS.yes)
-          .sort((a, b) => b.relevance - a.relevance)
-          .slice(0, 8)
-          .map((x) => x.p),
+        kept,
       };
     }
     const n = check.candidates.length;

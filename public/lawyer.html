@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><link rel="stylesheet" href="/css/court.css"><link rel="stylesheet" href="/css/lawyer.css"><title>Counsel's Office</title></head>
+<body>
+<header class="bar"><span class="seal">💼</span><h1 id="title">Counsel's Office</h1><button class="btn secondary bar-btn" id="new-case" type="button">New case</button></header>
+<main class="office">
+  <section class="chat card">
+    <div id="error" class="error" role="alert"></div>
+    <ol id="messages" class="messages" aria-live="polite"></ol>
+    <div id="typing" class="thinking" hidden>Counsel is working</div>
+    <div id="confirm" class="confirm" hidden></div>
+    <form id="say" autocomplete="off">
+      <textarea id="text" rows="2" maxlength="2000" placeholder="Tell your lawyer what happened…"></textarea>
+      <button class="btn" type="submit" id="send">Send</button>
+    </form>
+  </section>
+  <aside class="side">
+    <section class="card">
+      <h3>📝 Counsel's notes</h3>
+      <ol id="notes" class="notes"></ol>
+    </section>
+    <section class="card" id="mock-card" hidden>
+      <h3>🎭 Mock trial</h3>
+      <div id="mock"></div>
+    </section>
+    <section class="card">
+      <h3>📊 Cases</h3>
+      <div id="accuracy" class="small muted"></div>
+      <ol id="cases" class="case-list"></ol>
+      <div id="lessons" class="small"></div>
+    </section>
+  </aside>
+</main>
+<footer>Voice by ElevenLabs · Decisions by TypeSafe Jev · Running on Fly.io Sprites</footer>
+<script src="/js/common.js"></script>
+<script src="/js/lawyer.js"></script>
+</body></html>

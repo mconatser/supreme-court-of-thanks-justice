@@ -302,6 +302,13 @@ function ollamaStub(req: { model: string; messages: { role: string; content: str
       .replaceAll("{{winner}}", line("Winner") || "the court")
       .replaceAll("{{loser}}", line("Other party") || "the other side")
       .replaceAll("{{percent}}", line("Confidence") || "a lot");
+  const props = Object.keys((req.format as { properties?: object } | undefined)?.properties ?? {});
+  if (props.includes("argument")) {
+    return { model: req.model, message: { role: "assistant", content: JSON.stringify({ argument: "It's only fair to take turns, and I was there first." }) }, done: true };
+  }
+  if (props.includes("lesson")) {
+    return { model: req.model, message: { role: "assistant", content: JSON.stringify({ lesson: "Justice Heart cares about who did the work." }) }, done: true };
+  }
   if (req.format) {
     const op = fixture<{ opinion_md: string; bench_verdict: string; cited_articles: number[] }>("ollama/opinion.json");
     const content = JSON.stringify({ ...op, opinion_md: fill(op.opinion_md), bench_verdict: fill(op.bench_verdict) });
