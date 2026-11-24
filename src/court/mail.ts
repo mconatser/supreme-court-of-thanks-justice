@@ -6,7 +6,7 @@
  * Recipients are only people in people.json with an email. Every send spends EMAIL_DAILY.
  */
 import { RecessError, type Budget } from "../shared/budget.ts";
-import type { Gateway } from "../shared/gateway.ts";
+import { GatewayError, type Gateway } from "../shared/gateway.ts";
 import type { Person } from "../shared/people.ts";
 
 export type SendResult = "sent" | "no_email" | "disabled" | "budget" | "failed";
@@ -17,9 +17,13 @@ export interface Letter {
   html: string;
 }
 
+/** Transient failures (a cold gateway's first call answered 503 on fc-court) get two more tries. */
+export const MAIL_RETRY_DELAYS_MS = [400, 1500];
+const transient = (status: number) => status === 429 || status >= 500;
+
 export class Mailer {
   constructor(
-    private readonly opts: { gateway: Gateway; budget: Budget; inboxId?: string; log: (m: string) => void },
+    private readonly opts: { gateway: Gateway; budget: Budget; inboxId?: string; log: (m: string) => void; retryDelaysMs?: number[] },
   ) {}
 
   get enabled() {
@@ -35,22 +39,31 @@ export class Mailer {
       if (err instanceof RecessError) return "budget";
       throw err;
     }
-    try {
-      const res = await this.opts.gateway.gw("agentmail", `/v0/inboxes/${encodeURIComponent(this.opts.inboxId)}/messages/send`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ to: [to.email], subject: letter.subject, text: letter.text, html: letter.html }),
-        signal: AbortSignal.timeout(20_000),
-      });
-      if (!res.ok) {
-        this.opts.log(`[mail] AgentMail answered HTTP ${res.status} for "${letter.subject}"`);
-        return "failed";
+    // One email, one budget unit, however many tries it takes.
+    const delays = this.opts.retryDelaysMs ?? MAIL_RETRY_DELAYS_MS;
+    for (let attempt = 0; attempt <= delays.length; attempt++) {
+      if (attempt > 0) await new Promise((r) => setTimeout(r, delays[attempt - 1]));
+      let retry = false;
+      try {
+        const res = await this.opts.gateway.gw("agentmail", `/v0/inboxes/${encodeURIComponent(this.opts.inboxId)}/messages/send`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ to: [to.email], subject: letter.subject, text: letter.text, html: letter.html }),
+          signal: AbortSignal.timeout(20_000),
+        });
+        if (res.ok) {
+          if (attempt > 0) this.opts.log(`[mail] "${letter.subject}" sent on try ${attempt + 1}`);
+          return "sent";
+        }
+        this.opts.log(`[mail] AgentMail answered HTTP ${res.status} for "${letter.subject}" (try ${attempt + 1})`);
+        retry = transient(res.status);
+      } catch (err) {
+        this.opts.log(`[mail] couldn't send "${letter.subject}" (try ${attempt + 1}): ${(err as Error).message}`);
+        retry = !(err instanceof GatewayError) || transient(err.status); // 401/403 won't fix themselves
       }
-      return "sent";
-    } catch (err) {
-      this.opts.log(`[mail] couldn't send "${letter.subject}": ${(err as Error).message}`);
-      return "failed";
+      if (!retry) break;
     }
+    return "failed";
   }
 }
 

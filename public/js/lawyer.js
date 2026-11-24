@@ -5,9 +5,14 @@
   let state = null;
   let es = null;
 
+  // Updates come in bursts; the newest request wins so a late, older answer can't roll the page back.
+  let loadSeq = 0;
   async function load() {
+    const mine = ++loadSeq;
     try {
-      state = await api("/lawyer/api/state");
+      const fresh = await api("/lawyer/api/state");
+      if (mine !== loadSeq) return;
+      state = fresh;
       $("error").textContent = "";
     } catch (e) {
       $("error").textContent = e.message;

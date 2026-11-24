@@ -833,7 +833,9 @@ export class Hearings {
         ? "A summons is on its way by email."
         : result === "budget"
           ? "The court is out of stamps for today, so please answer here in person."
-          : "Please answer here in person: tap “Tell your side”.";
+          : result === "failed"
+            ? "The summons email didn't go through, so please answer here in person: tap “Tell your side”."
+            : "Please answer here in person: tap “Tell your side”.";
     this.emit(c.id, "clerk", "summons.issued", `The court summons ${alias} to tell their side. ${how}`, { party: alias, via });
     this.wakeAt(c.id, Date.now() + this.timeoutMs());
   }

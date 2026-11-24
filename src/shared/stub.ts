@@ -168,10 +168,22 @@ export const stubBox = {
 
 export const stubMail = {
   sent: [] as { inbox: string; to: string[]; subject: string; text: string; html?: string }[],
+  /** Answer the next N sends with this status (fc-court saw a 503 on the first call). */
+  failNext: 0,
+  failStatus: 503,
+  attempts: 0,
   reset() {
     this.sent = [];
+    this.failNext = 0;
+    this.failStatus = 503;
+    this.attempts = 0;
   },
   send(r: StubRequest) {
+    this.attempts++;
+    if (this.failNext > 0) {
+      this.failNext--;
+      return Response.json({ name: "ServiceUnavailable" }, { status: this.failStatus });
+    }
     const inbox = decodeURIComponent(r.url.pathname.split("/")[3]);
     this.sent.push({ inbox, ...r.body });
     return { message_id: `msg_${this.sent.length}`, thread_id: `thr_${this.sent.length}` };

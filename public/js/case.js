@@ -11,8 +11,15 @@
   let es = null;
   let closedSeen = false;
 
+  // Events can arrive in bursts (always on replay), and each refresh is a fetch. The newest request
+  // wins: an older response that arrives late must never paint the case as it used to be.
+  let refreshSeq = 0;
+  let latestCase = null;
   async function refresh() {
+    const mine = ++refreshSeq;
     const c = await api(`/api/cases/${n}`);
+    if (mine !== refreshSeq) return latestCase || c; // a newer refresh is on its way
+    latestCase = c;
     document.getElementById("case-title").textContent = `${c.label}: ${c.title}`;
     document.getElementById("header").replaceChildren(
       el("h2", { id: "case-title" }, `${c.label}: ${c.title}`),

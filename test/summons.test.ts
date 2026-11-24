@@ -69,6 +69,49 @@ describe("summons", () => {
     expect(m.ctx.budget.used("email")).toBe(1);
   });
 
+  it("an emailed summons is also offered in person (“Tell your side” on the case page)", async () => {
+    const m = setup({}, ["p3"]);
+    const cookie = await login(m.app);
+    const { id, number } = m.ctx.hearings.file(ONE_SIDED);
+    await m.ctx.hearings.start(id);
+    const view = await (await m.app.request(`/api/cases/${number}`, { headers: { cookie } })).json();
+    expect(view.summons).toEqual([{ party: "Sky Sister", status: "pending", via: "email", url: `/summons/${tokenOf(m, id)}` }]);
+  });
+
+  it("retries a transient AgentMail failure (fc-court's first send got a 503), spending the budget once", async () => {
+    stubMail.failNext = 1;
+    const m = setup({}, ["p3"]);
+    const { id } = m.ctx.hearings.file(ONE_SIDED);
+    await m.ctx.hearings.start(id);
+    expect(stubMail.attempts).toBe(2);
+    expect(stubMail.sent).toHaveLength(1);
+    expect(stubMail.sent[0].text).toContain(`/summons/${tokenOf(m, id)}`);
+    expect(m.ctx.hearings.summonsFor(id)[0].sent_via).toBe("email");
+    expect(m.ctx.budget.used("email")).toBe(1);
+  });
+
+  it("if the email never goes through, the summons says so and is answered in person", async () => {
+    stubMail.failNext = 10;
+    const m = setup({}, ["p3"]);
+    const { id } = m.ctx.hearings.file(ONE_SIDED);
+    await m.ctx.hearings.start(id);
+    expect(stubMail.attempts).toBe(3);
+    expect(m.ctx.hearings.summonsFor(id)[0].sent_via).toBe("in_person");
+    expect(m.ctx.budget.used("email")).toBe(1);
+    const msg = m.ctx.db.prepare("SELECT message FROM events WHERE case_id = ? AND kind = 'summons.issued'").get(id) as { message: string };
+    expect(msg.message).toMatch(/email didn't go through.*in person/);
+  });
+
+  it("doesn't retry a 403 (a policy problem won't fix itself)", async () => {
+    stubMail.failNext = 10;
+    stubMail.failStatus = 403;
+    const m = setup({}, ["p3"]);
+    const { id } = m.ctx.hearings.file(ONE_SIDED);
+    await m.ctx.hearings.start(id);
+    expect(stubMail.attempts).toBe(1);
+    expect(m.ctx.hearings.summonsFor(id)[0].sent_via).toBe("in_person");
+  });
+
   it("testimony from the link resumes the hearing, is contempt-screened, and the party isn't in absentia", async () => {
     const m = setup();
     const { id } = m.ctx.hearings.file(ONE_SIDED);
