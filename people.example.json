@@ -1,0 +1,7 @@
+[
+  { "id": "parent1", "name": "", "alias": "The Big Cheese", "email": "", "role": "parent" },
+  { "id": "parent2", "name": "", "alias": "Chief Pancake", "email": "", "role": "parent" },
+  { "id": "kid1", "name": "", "alias": "Pip", "email": "", "role": "kid" },
+  { "id": "kid2", "name": "", "alias": "Sky Sister", "email": "", "role": "kid" },
+  { "id": "guest1", "name": "", "alias": "Cousin Comet", "email": "", "role": "guest" }
+]

@@ -48,7 +48,7 @@ else {
     return c.json({ ok: true, roles: await startSession(c, cfg, roles) });
   });
   for (const dir of ["css", "js", "sfx"]) app.use(`/${dir}/*`, serveStatic({ root: "public" }));
-  app.get("/healthz", (c) => c.json({ ok: true, bootedAt, deployId: null }));
+  app.get("/healthz", (c) => c.json({ ok: true, bootedAt, uptimeMs: Date.now() - bootedAt, deployId: null }));
 }
 
 const server = serve({ fetch: app.fetch, port: cfg.PORT }, (info) => {

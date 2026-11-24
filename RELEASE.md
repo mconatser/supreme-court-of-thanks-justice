@@ -18,12 +18,17 @@ Work through this top to bottom before the repo goes public. Submissions close a
 
 - [ ] Reset the demo data with aliases (SPEC §13, Phase 6).
 
-## 3. Submit
+## 3. Docs match what shipped
+
+- [ ] README.md: every feature it describes works on `fc-court` and `fc-lawyer`. If the mistrial, appeals or the two-Sprite split were cut, remove them from the README pitch and diagram.
+- [ ] Add screenshots or a GIF of the ruling card, the lawyer's mock trial, and the ex parte 403.
+
+## 4. Submit
 
 - [ ] Make the repo public.
 - [ ] Submit: code link, demo, short description (SPEC §1), by early evening ET.
 - [ ] Post with the recording, tagging @flydotio.
 
-## 4. After the hackathon
+## 5. After the hackathon
 
 - [ ] Delete `fc-court-dev` (or all three Sprites if you're done), per SETUP.md's cost guardrails.

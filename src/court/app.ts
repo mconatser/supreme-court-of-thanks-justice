@@ -75,7 +75,8 @@ export function createCourtApp(ctx: CourtContext, opts: CourtAppOptions = {}) {
 
   // ---------- public ----------
 
-  app.get("/healthz", (c) => c.json({ ok: true, bootedAt: ctx.bootedAt, deployId: ctx.deployId }));
+  // uptimeMs lets the page tell a cold wake from a warm one without trusting the phone's clock.
+  app.get("/healthz", (c) => c.json({ ok: true, bootedAt: ctx.bootedAt, uptimeMs: Date.now() - ctx.bootedAt, deployId: ctx.deployId }));
 
   app.get("/login", page("login.html"));
   app.post("/login", async (c) => {

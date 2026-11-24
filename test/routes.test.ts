@@ -28,7 +28,11 @@ describe("auth and pages", () => {
   it("/healthz is public; pages redirect to /login; APIs say 401", async () => {
     const { app } = makeApp();
     const h = await app.request("/healthz");
-    expect(await h.json()).toMatchObject({ ok: true });
+    const health = await h.json();
+    expect(health).toMatchObject({ ok: true });
+    // The wake splash compares uptime, not clocks: a freshly booted court reports a small uptime.
+    expect(health.uptimeMs).toBeGreaterThanOrEqual(0);
+    expect(health.uptimeMs).toBeLessThan(10_000);
     const page = await app.request("/", { headers: { accept: "text/html" } });
     expect(page.status).toBe(302);
     expect(page.headers.get("location")).toMatch(/^\/login/);

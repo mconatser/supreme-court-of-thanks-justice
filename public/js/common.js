@@ -74,3 +74,42 @@ function setCourtName(name) {
   document.querySelectorAll("[data-court-name]").forEach((n) => (n.textContent = name));
   document.title = document.title.replace(/^Family Court/, name);
 }
+
+/**
+ * "All rise" splash: a Sprite pauses when idle and wakes on the next request. If this server
+ * booted moments ago, say how long the judge took to reconvene. The page request itself is what
+ * woke the court, so time it with Navigation Timing; fall back to timing /healthz.
+ */
+(function wakeSplash() {
+  const WAKE_WINDOW_MS = 10000;
+  async function check() {
+    const nav = performance.getEntriesByType && performance.getEntriesByType("navigation")[0];
+    const pageWait = nav && nav.responseStart > 0 ? nav.responseStart - nav.requestStart : 0;
+    const t0 = performance.now();
+    let health;
+    try {
+      const res = await fetch("/healthz", { cache: "no-store" });
+      health = await res.json();
+    } catch {
+      return;
+    }
+    const pingWait = performance.now() - t0;
+    if (typeof health.uptimeMs !== "number" || health.uptimeMs > WAKE_WINDOW_MS + pageWait + pingWait) return;
+    try {
+      if (sessionStorage.getItem("fc_woke") === String(health.bootedAt)) return; // once per wake
+      sessionStorage.setItem("fc_woke", String(health.bootedAt));
+    } catch {}
+    const secs = (Math.max(pageWait, pingWait) / 1000).toFixed(1);
+    const splash = el(
+      "div",
+      { class: "wake-splash", role: "status" },
+      el("div", { class: "wake-card" }, el("div", { class: "wake-gavel" }, "⚖️"), el("div", { class: "wake-title" }, "All rise!"), el("div", {}, `The judge was napping. Court reconvened in ${secs} s.`)),
+    );
+    splash.addEventListener("click", () => splash.remove());
+    document.body.append(splash);
+    setTimeout(() => splash.classList.add("leaving"), 2600);
+    setTimeout(() => splash.remove(), 3200);
+  }
+  if (document.readyState === "complete") check();
+  else window.addEventListener("load", check);
+})();
