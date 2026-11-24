@@ -11,6 +11,16 @@ import { caseLabel } from "./precedent.ts";
 
 type StoredSeat = Seat & { name: string };
 
+/** ready: ▶ playable · no_budget: "lost their voice for today" · unavailable: TTS failed · none: voice off */
+function voiceStatus(ctx: CourtContext, c: CaseRow) {
+  if (ctx.voice.hasAudio(c.number)) return { status: "ready", url: `/cases/${c.number}/verdict.mp3` };
+  const e = ctx.db.prepare("SELECT data_json FROM events WHERE case_id = ? AND kind = 'voice.unavailable' ORDER BY id DESC LIMIT 1").get(c.id) as
+    | { data_json: string | null }
+    | undefined;
+  if (e) return { status: JSON.parse(e.data_json ?? "{}").reason === "no_budget" ? "no_budget" : "unavailable", url: null };
+  return { status: "none", url: null };
+}
+
 const currentAliasOf = (ctx: CourtContext, personId: string, L: Labels) => ctx.people.find((p) => p.id === personId)?.alias ?? L.plaintiff;
 
 export function publicEvent(e: EventRow, labels?: Labels) {
@@ -110,6 +120,7 @@ export function caseView(c: CaseRow, ctx: CourtContext, roles: string[] = []) {
       seats,
       sentence: r.sentence_level != null ? { level: r.sentence_level, text: r.sentence_text } : null,
       petitionRecommended: c.type === "petition" && r.outcome === "plaintiff",
+      voice: voiceStatus(ctx, c),
       opinionMd: L.relabel(r.opinion_md),
       benchVerdict: L.relabel(r.bench_verdict),
       citedArticles: citedArticles.map((n) => ({ number: n, title: code.articles.find((a) => a.number === n)?.title ?? "" })),

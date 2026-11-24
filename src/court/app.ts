@@ -147,6 +147,13 @@ export function createCourtApp(ctx: CourtContext, opts: CourtAppOptions = {}) {
     return c.json(caseView(k, ctx, await getRoles(c, cfg)));
   });
 
+  app.get("/cases/:n{[0-9]+}/verdict.mp3", court, (c) => {
+    const n = Number(c.req.param("n"));
+    if (!ctx.voice.hasAudio(n)) return c.json({ error: "The judge hasn't recorded this verdict." }, 404);
+    const bytes = readFileSync(ctx.voice.audioPath(n));
+    return c.body(bytes, 200, { "content-type": "audio/mpeg", "cache-control": "private, max-age=86400", "content-length": String(bytes.length) });
+  });
+
   app.post("/cases/:n{[0-9]+}/approval", parent, async (c) => {
     const k = ctx.hearings.getCaseByNumber(Number(c.req.param("n")));
     if (!k) return c.json({ error: "The court can't find that case." }, 404);

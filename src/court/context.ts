@@ -11,6 +11,7 @@ import type { Person } from "../shared/people.ts";
 import { linkParties, openDb, type DB, type EventRow } from "./db.ts";
 import { BoxClient } from "./box.ts";
 import { Mailer } from "./mail.ts";
+import { Voice } from "./voice.ts";
 import { FamilyCodeSource } from "./familyCode.ts";
 import { LandmarkSource } from "./landmarks.ts";
 import { Hearings } from "./hearing.ts";
@@ -29,6 +30,7 @@ export interface CourtContext {
   familyCode: FamilyCodeSource;
   box: BoxClient;
   mailer: Mailer;
+  voice: Voice;
   landmarks: LandmarkSource;
   persona: () => string;
   hearings: Hearings;
@@ -73,6 +75,15 @@ export function createCourtContext(cfg: Config, people: Person[], o: ContextOver
   });
   const box = new BoxClient(gateway);
   const mailer = new Mailer({ gateway, budget, inboxId: cfg.AGENTMAIL_INBOX_ID, log });
+  const voice = new Voice({
+    gateway,
+    budget,
+    base: cfg.ELEVENLABS_BASE,
+    voiceId: cfg.ELEVENLABS_VOICE_ID,
+    modelId: cfg.ELEVENLABS_MODEL_ID,
+    dataDir: cfg.DATA_DIR,
+    log,
+  });
   const bus = new EventEmitter<{ event: [EventRow] }>();
   bus.setMaxListeners(200);
 
@@ -101,6 +112,7 @@ export function createCourtContext(cfg: Config, people: Person[], o: ContextOver
     }),
     box,
     mailer,
+    voice,
     landmarks: new LandmarkSource(o.landmarksPath ?? join(cfg.CONTENT_DIR, "landmark-cases.md")),
     persona: () => {
       try {

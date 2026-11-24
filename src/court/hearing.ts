@@ -216,6 +216,25 @@ export class Hearings {
     await this.syncRecord(caseId);
   }
 
+  // ---------- the spoken verdict (ElevenLabs) ----------
+
+  private async recordVoice(caseId: number) {
+    const c = this.getCase(caseId)!;
+    const r = this.ctx.db.prepare("SELECT bench_verdict FROM rulings WHERE case_id = ? ORDER BY round DESC LIMIT 1").get(caseId) as
+      | { bench_verdict: string | null }
+      | undefined;
+    if (!r?.bench_verdict) return;
+    const result = await this.ctx.voice.speak(c.number, r.bench_verdict);
+    if (result.status === "ready") {
+      this.ctx.db.prepare("UPDATE rulings SET audio_path = ? WHERE case_id = ?").run(result.path, caseId);
+      this.emit(caseId, "judge", "voice.ready", "The judge clears their throat…");
+    } else if (result.status === "no_budget") {
+      this.emit(caseId, "judge", "voice.unavailable", "The judge has lost their voice for today, so the verdict is in writing.", { reason: "no_budget" });
+    } else if (result.status === "failed") {
+      this.emit(caseId, "judge", "voice.unavailable", "The judge's microphone isn't working right now, so the verdict is in writing.", { reason: "failed" });
+    }
+  }
+
   // ---------- notices (AgentMail) ----------
 
   private async sendNotices(caseId: number, ruling: RulingData) {
@@ -747,6 +766,7 @@ export class Hearings {
     // 8. Record: file it in Box (never blocks the gavel; retried on the next boot), then notices.
     if (!this.lastEvent(id, "record.filed")) await this.syncRecord(id);
     if (!this.lastEvent(id, "notices.sent")) await this.sendNotices(id, ruling);
+    if (!this.lastEvent(id, "voice.ready") && !this.lastEvent(id, "voice.unavailable")) await this.recordVoice(id);
 
     // 9. Gavel
     if (!this.lastEvent(id, "case.closed")) {

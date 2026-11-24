@@ -94,6 +94,8 @@
           )
         : null,
       r.sentence ? el("div", { class: "rc-sentence" }, `Sentence: ${r.sentence.text}`) : null,
+      r.benchVerdict ? el("blockquote", { class: "rc-bench" }, `“${r.benchVerdict}”`) : null,
+      voiceControl(r.voice),
       r.petitionRecommended ? approvalBlock(c) : null,
       r.citedArticles && r.citedArticles.length
         ? el("div", { class: "rc-articles" }, "Cites ", r.citedArticles.map((a) => `Article ${a.number}${a.title ? ` (${a.title})` : ""}`).join(", "))
@@ -148,20 +150,58 @@
     if (e.kind === "case.closed") onClosed();
   }
 
-  function onClosed() {
+  async function onClosed() {
     closedSeen = true;
     thinking.hidden = true;
     if (es) es.close();
-    refresh().catch(() => {});
-    playGavel();
-  }
-
-  function playGavel() {
+    const c = await refresh().catch(() => null);
     const seal = document.querySelector(".bar .seal, .bar .back");
     if (seal) { seal.classList.remove("gavel-flash"); void seal.offsetWidth; seal.classList.add("gavel-flash"); }
-    if (!liveSession) return; // don't bang the gavel when just reopening an old case
-    const audio = new Audio("/sfx/gavel.mp3");
-    audio.play().catch(() => { /* no gavel sound yet, or autoplay blocked */ });
+    // Only bang the gavel for hearings watched live, not when reopening an old case.
+    if (liveSession) ceremony(c && c.ruling && c.ruling.voice);
+  }
+
+  let player = null;
+  function stopAudio() {
+    if (player) { player.pause(); player = null; }
+  }
+
+  /** The gavel, then the verdict. Phones may block autoplay; then the ▶ button pulses instead. */
+  function ceremony(voice) {
+    stopAudio();
+    const gavel = new Audio("/sfx/gavel.mp3");
+    player = gavel;
+    let moved = false;
+    const next = () => {
+      if (moved) return;
+      moved = true;
+      if (voice && voice.status === "ready") playVerdict(voice.url);
+    };
+    gavel.addEventListener("ended", next);
+    gavel.addEventListener("error", next); // no gavel.mp3 yet: go straight to the verdict
+    gavel.play().catch((e) => (e && e.name === "NotAllowedError" ? nudgePlay() : next()));
+  }
+
+  function playVerdict(url) {
+    stopAudio();
+    const a = new Audio(url);
+    player = a;
+    const btn = document.getElementById("play-verdict");
+    if (btn) btn.textContent = "🔊 The judge speaks…";
+    a.addEventListener("ended", () => { if (btn) btn.textContent = "▶ Hear the verdict again"; });
+    a.play().catch(() => nudgePlay());
+  }
+
+  function nudgePlay() {
+    const btn = document.getElementById("play-verdict");
+    if (btn) { btn.classList.add("pulse"); btn.textContent = "▶ Tap to hear the verdict"; }
+  }
+
+  function voiceControl(voice) {
+    if (!voice || voice.status === "none") return null;
+    if (voice.status === "no_budget") return el("div", { class: "rc-voice-note" }, "🤐 The judge has lost their voice for today.");
+    if (voice.status === "unavailable") return el("div", { class: "rc-voice-note" }, "🎙️ The judge's microphone isn't working, so here's the verdict in writing.");
+    return el("button", { class: "btn", type: "button", id: "play-verdict", style: "margin-top:12px", onclick: () => playVerdict(voice.url) }, "▶ Hear the verdict");
   }
 
   let liveSession = false;

@@ -178,10 +178,16 @@ export const STUB_MP3 = new Uint8Array([0x49, 0x44, 0x33, 0x04, 0x00, 0x00, 0x00
 
 export const stubTts = {
   requests: [] as { voice: string; text: string; model_id?: string }[],
+  failNext: 0,
   reset() {
     this.requests = [];
+    this.failNext = 0;
   },
   speak(r: StubRequest) {
+    if (this.failNext > 0) {
+      this.failNext--;
+      return Response.json({ detail: { status: "endpoint_not_supported" } }, { status: 400 });
+    }
     this.requests.push({ voice: r.url.pathname.split("/").at(-1)!, ...r.body });
     return new Response(STUB_MP3, { headers: { "content-type": "audio/mpeg" } });
   },
