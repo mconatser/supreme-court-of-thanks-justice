@@ -14,8 +14,8 @@ export class RecessError extends Error {
   }
 }
 
-/** Worst-case Jev calls for one hearing: screening, sufficiency, testimony screening, precedent relevance, deliberation. */
-export const JEV_CALLS_PER_HEARING = 5;
+/** Worst-case Jev calls for one hearing: screening, sufficiency, testimony screening, precedent relevance, deliberation, article relevance. */
+export const JEV_CALLS_PER_HEARING = 6;
 
 export class Budget {
   constructor(

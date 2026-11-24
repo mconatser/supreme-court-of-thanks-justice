@@ -16,7 +16,7 @@ import type { ChatMessage, Ollama } from "../shared/ollama.ts";
 import type { CourtClient } from "./court.ts";
 import type { LawyerDB } from "./db.ts";
 import { brierScore, caseList, recentLessons } from "./memory.ts";
-import { runTool, TOOL_DEFS, type Filing, type MatterState, type Pending } from "./tools.ts";
+import { followHearing, personaLine, runTool, settleCase, TOOL_DEFS, type Filing, type MatterState, type Pending, type ToolDeps } from "./tools.ts";
 
 export const MAX_TOOL_CALLS_PER_TURN = 10;
 const MAX_MODEL_CALLS_PER_TURN = 16;
@@ -56,6 +56,8 @@ export interface LawyerContext {
   /** "update" fires with a matter ref whenever something the UI shows changes. */
   bus: EventEmitter<{ update: [string] }>;
   log: (m: string) => void;
+  /** How long a background follower waits on a paused hearing (tests shorten it). */
+  followMaxMs?: number;
 }
 
 interface MatterRow {
@@ -164,6 +166,109 @@ export class Lawyer {
   }
 
   /** On boot: finish any turn that was interrupted (the transcript says where it stopped). */
+  // ---------- following hearings in the background ----------
+
+  private following = new Map<number, Promise<void>>();
+  private remarked = new Set<number>();
+  private lastReconcile = 0;
+
+  private deps(ref: string): ToolDeps {
+    return {
+      db: this.ctx.db,
+      jev: this.ctx.jev,
+      ollama: this.ctx.ollama,
+      court: this.ctx.court,
+      client: this.client!,
+      onNote: (n: string) => this.note(ref, "watch_hearing", n),
+      persona: () => this.persona(),
+      remarked: this.remarked,
+    };
+  }
+
+  isFollowing(n: number) {
+    return this.following.has(n);
+  }
+
+  /** Keep watching a paused hearing; when the court rules, report back without waiting for the client. */
+  follow(ref: string, n: number): Promise<void> {
+    const existing = this.following.get(n);
+    if (existing) return existing;
+    const p = (async () => {
+      const deps = this.deps(ref);
+      const { view } = await followHearing(deps, n, { stopOnSummons: false, maxMs: this.ctx.followMaxMs ?? 45 * 60_000 });
+      if (view.final) await this.reportRuling(ref, n, view);
+      // Otherwise (a very long pause, or the Sprite napped): reconcile picks it up later.
+    })()
+      .catch((err) => this.ctx.log(`[lawyer] following case ${n} stopped: ${(err as Error).message}`))
+      .finally(() => this.following.delete(n));
+    this.following.set(n, p);
+    return p;
+  }
+
+  /** Tell the client what happened, in the lawyer's own voice, and remember it for next time. */
+  private async reportRuling(ref: string, n: number, view: any) {
+    const settled = await settleCase(this.deps(ref), n, view);
+    if (!settled.fresh) return; // already reported
+    this.note(ref, "watch_hearing", settled.note);
+    const persona = this.persona();
+    const r = view.ruling ?? {};
+    const opener =
+      settled.outcome === "won"
+        ? personaLine(persona, "What they say when they win", "We won!")
+        : settled.outcome === "compromise"
+          ? "It's a compromise, boss."
+          : personaLine(persona, "What they say when they lose", "Sorry, we did our best.");
+    const what =
+      settled.outcome === "compromise"
+        ? "The court said it was too close to call and ordered a compromise."
+        : settled.outcome === "contempt"
+          ? "The court held someone in contempt."
+          : `The court ruled for ${r.winner}${r.vote ? ` (${r.vote})` : ""}.`;
+    const predicted = settled.predicted != null ? ` I'd predicted ${Math.round(settled.predicted * 100)}%.` : "";
+    const message = `${opener} ${what}${predicted}${settled.lesson ? ` Lesson learned: ${settled.lesson}` : ""}`;
+    this.say(ref, "lawyer", message);
+    // Keep the model's own transcript in step, unless a turn is mid-flight (it would overwrite it).
+    if (!this.isRunning(ref)) {
+      const row = this.load(ref);
+      if (!row.running) {
+        const messages = JSON.parse(row.messages_json) as ChatMessage[];
+        messages.push({ role: "assistant", content: message });
+        this.ctx.db.prepare("UPDATE matters SET messages_json = ?, updated_at = ? WHERE case_ref = ?").run(JSON.stringify(messages), Date.now(), ref);
+      }
+    }
+  }
+
+  /**
+   * Make sure every filed case ends up with its outcome recorded, even if the client never came
+   * back: rulings that happened while nobody watched are recorded now, and open hearings are
+   * followed again. Runs on boot and (throttled) when the lawyer page loads.
+   */
+  async reconcile(force = false): Promise<{ settled: number; following: number }> {
+    if (!force && Date.now() - this.lastReconcile < 30_000) return { settled: 0, following: this.following.size };
+    this.lastReconcile = Date.now();
+    if (!this.client) return { settled: 0, following: 0 };
+    const open = this.ctx.db.prepare("SELECT case_ref, court_case_number FROM cases WHERE court_case_number IS NOT NULL AND outcome IS NULL").all() as {
+      case_ref: string;
+      court_case_number: number;
+    }[];
+    let settled = 0;
+    for (const c of open) {
+      if (this.following.has(c.court_case_number)) continue;
+      try {
+        const view = await this.ctx.court.getCase(c.court_case_number);
+        if (view.final) {
+          await this.reportRuling(c.case_ref, c.court_case_number, view);
+          settled++;
+        } else {
+          void this.follow(c.case_ref, c.court_case_number);
+        }
+      } catch (err) {
+        this.ctx.log(`[lawyer] couldn't check case ${c.court_case_number}: ${(err as Error).message}`);
+      }
+    }
+    return { settled, following: this.following.size };
+  }
+
   resumeRunning(): string[] {
     const rows = this.ctx.db.prepare("SELECT case_ref FROM matters WHERE running = 1").all() as { case_ref: string }[];
     for (const r of rows) {
@@ -239,15 +344,7 @@ export class Lawyer {
     // The court's party list, up front, so the lawyer picks real people instead of guessing.
     const parties = await this.ctx.court.parties().catch(() => this.ctx.court.parties().catch(() => null));
     const system: ChatMessage = { role: "system", content: this.systemPrompt(parties) };
-    const deps = {
-      db: this.ctx.db,
-      jev: this.ctx.jev,
-      ollama: this.ctx.ollama,
-      court: this.ctx.court,
-      client: this.client!,
-      onNote: (n: string) => this.note(ref, "watch_hearing", n),
-      persona: () => this.persona(),
-    };
+    const deps = this.deps(ref);
 
     let toolCalls = 0;
     let think = false;
@@ -276,6 +373,7 @@ export class Lawyer {
           }
           messages.push({ role: "tool", tool_name: name, content: JSON.stringify(r.result) });
           if (name === "mock_trial" && r.ok) think = true; // strategy time
+          if (r.follow) this.follow(ref, r.follow); // a paused hearing: keep watching in the background
           this.save(ref, messages, state, null, true);
         }
         continue;

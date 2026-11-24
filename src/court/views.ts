@@ -146,6 +146,8 @@ export function caseView(c: CaseRow, ctx: CourtContext, roles: string[] = []) {
         : { key: s.key, name: s.name, status: s.status, reason: s.reason },
     );
     const lean = r.outcome === "compromise" ? leanOf(stored) : null;
+    // A split (no lean) has no "% sure"; older rulings stored the justices' own certainty here.
+    const split = r.outcome === "compromise" && !lean && stored.some((s) => s.status === "voted");
     const citedArticles = r.cited_articles_json ? (JSON.parse(r.cited_articles_json) as number[]) : [];
     const struckAuthor = filings.find((f) => f.struck);
     ruling = {
@@ -153,11 +155,13 @@ export function caseView(c: CaseRow, ctx: CourtContext, roles: string[] = []) {
       winner: r.outcome === "plaintiff" ? L.plaintiff : r.outcome === "defendant" ? L.defendant : null,
       contemnor: r.outcome === "contempt" && struckAuthor ? L.party(struckAuthor.author, struckAuthor.author_id) : null,
       vote: r.vote,
-      confidencePct: r.case_confidence != null ? Math.round(r.case_confidence * 100) : null,
+      confidencePct: !split && r.case_confidence != null ? Math.round(r.case_confidence * 100) : null,
       lean: lean ? { side: lean.side, party: sideName(lean.side), vote: lean.vote } : null,
+      split,
       seats,
       sentence: r.sentence_level != null ? { level: r.sentence_level, text: r.sentence_text } : null,
-      petitionRecommended: c.type === "petition" && r.outcome === "plaintiff",
+      // Granted petitions and compromises on petitions both need the Executive Branch's OK.
+      petitionRecommended: c.type === "petition" && (r.outcome === "plaintiff" || r.outcome === "compromise"),
       round: r.round,
       voice: voiceStatus(ctx, c, r.round),
       opinionMd: L.relabel(r.opinion_md),

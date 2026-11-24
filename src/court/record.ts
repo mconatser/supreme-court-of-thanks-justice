@@ -26,9 +26,11 @@ export function renderRecord(v: View, courtName: string, filedAt: Date = new Dat
   if (r) {
     const outcome = r.winner ? `For ${r.winner}` : OUTCOME[r.outcome ?? ""] ?? r.outcome ?? "";
     lines.push(`- **Outcome:** ${outcome}${r.vote ? ` (vote ${r.vote})` : ""}${r.lean ? `, leaning ${r.lean.party} ${r.lean.vote}` : ""}`);
-    if (r.confidencePct != null && r.outcome !== "contempt") lines.push(`- **Confidence:** ${r.confidencePct}%`);
+    if (r.split) lines.push(`- **Split ${r.vote}:** the justices strongly disagree`);
+    else if (r.confidencePct != null && r.outcome !== "contempt") lines.push(`- **Confidence:** ${r.confidencePct}%`);
     if (r.sentence) lines.push(`- **Sentence (level ${r.sentence.level}):** ${r.sentence.text}`);
     if (r.petitionRecommended) {
+      if (r.outcome === "compromise") lines.push("- **Note:** a compromise on a petition changes a house rule, so it needs a parent's OK too");
       const a = v.approval === "approved" ? "APPROVED by the Executive Branch" : v.approval === "denied" ? "NOT approved by the Executive Branch" : "awaiting the Executive Branch (a parent)";
       lines.push(`- **Petition:** ${a}`);
     }

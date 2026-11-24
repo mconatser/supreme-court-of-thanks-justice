@@ -67,6 +67,9 @@ const server = serve({ fetch: app.fetch, port: cfg.PORT }, (info) => {
     setTimeout(() => {
       const resumed = lawyer.lawyer.resumeRunning();
       if (resumed.length) console.log(`[lawyer] resuming ${resumed.length} interrupted turn(s)`);
+      void lawyer.lawyer.reconcile(true).then((r) => {
+        if (r.settled || r.following) console.log(`[lawyer] reconciled: ${r.settled} ruling(s) recorded, following ${r.following} hearing(s)`);
+      });
     }, 1500).unref();
   }
 });

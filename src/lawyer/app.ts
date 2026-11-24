@@ -72,6 +72,7 @@ export function createLawyerApp(
   app.get("/api/state", auth, (c) => {
     const problem = notReady();
     if (problem) return c.json({ error: problem }, 503);
+    void lawyer.reconcile(); // throttled: record rulings that happened while nobody was watching
     return c.json(lawyer.view(lawyer.currentMatter()));
   });
 

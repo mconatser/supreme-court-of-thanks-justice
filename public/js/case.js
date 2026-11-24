@@ -191,7 +191,18 @@
       r.outcome === "compromise"
         ? el("div", { class: "rc-vote" }, r.lean ? `Leaning ${r.lean.party} ${r.lean.vote}` : `Split ${r.vote}`)
         : r.vote ? el("div", { class: "rc-vote" }, `Vote ${r.vote}`) : null,
-      pct != null && r.outcome !== "contempt"
+      r.split
+        ? el(
+            "div",
+            { class: "rc-split" },
+            el("div", { class: "label" }, "⚖️ The justices strongly disagree"),
+            el(
+              "div",
+              { class: "small" },
+              (r.seats || []).filter((s) => s.status === "voted").map((s) => `${s.name} → ${s.party} (${s.pct}%)`).join(" · "),
+            ),
+          )
+        : pct != null && r.outcome !== "contempt"
         ? el(
             "div",
             { class: "rc-meter" },
@@ -218,7 +229,8 @@
   function approvalBlock(c) {
     if (c.approval === "approved") return el("div", { class: "rc-recommend" }, "👑 Approved by the Executive Branch. It's official!");
     if (c.approval === "denied") return el("div", { class: "rc-recommend" }, "👑 The Executive Branch said no. The house rule stays the same.");
-    const box = el("div", { class: "rc-recommend" }, "Recommended to the Executive Branch (a parent) for approval.");
+    const what = c.ruling && c.ruling.outcome === "compromise" ? "The compromise is recommended" : "Recommended";
+    const box = el("div", { class: "rc-recommend" }, `${what} to the Executive Branch (a parent) for approval.`);
     if (c.viewer && c.viewer.isParent) {
       const err = el("div", { class: "error small" });
       const decide = (decision) => async () => {

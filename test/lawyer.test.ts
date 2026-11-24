@@ -466,3 +466,92 @@ describe("a long shot gets said out loud before \"Ready to file?\"", () => {
     expect(bestWinPct({ mock: null })).toBeNull();
   });
 });
+
+describe("counsel keeps up with paused hearings (fc-court: notes stopped at the summons)", () => {
+  const until = async (check: () => boolean, ms = 6000) => {
+    const end = Date.now() + ms;
+    while (!check() && Date.now() < end) await new Promise((r) => setTimeout(r, 25));
+    return check();
+  };
+  const testify = async (s: ReturnType<typeof setup>, text = "I got to the car first, so it was my turn.") => {
+    const { token } = s.court.db.prepare("SELECT token FROM summons WHERE status = 'pending' ORDER BY id DESC").get() as { token: string };
+    const res = await s.courtApp.request(`/summons/${token}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ testimony: text }) });
+    expect(res.status).toBe(200);
+  };
+  const outcomeOf = (s: ReturnType<typeof setup>) => (s.ctx.db.prepare("SELECT outcome FROM cases").get() as { outcome: string | null } | undefined)?.outcome ?? null;
+
+  it("follows the hearing after the summons and reports the ruling without the client coming back", async () => {
+    const s = setup([
+      { tools: [{ name: "mock_trial", args: { ...FACTS, drafts: [GOOD], opposing_view: "x" } }] },
+      { tools: [{ name: "ask_client", args: { question: "Ready?", confirm_filing: FILING } }] },
+    ]);
+    const ref = s.lawyer.currentMatter();
+    await s.lawyer.handle(ref, { text: "Go!" });
+    s.script.steps.push({ tools: [{ name: "file_case", args: FILING }] }, { tools: [{ name: "watch_hearing", args: { number: 1 } }] }, { content: "We wait for Sky Sister." });
+    await s.lawyer.handle(ref, { confirm: true });
+    expect(s.lawyer.isFollowing(1)).toBe(true);
+    expect(outcomeOf(s)).toBeNull();
+
+    await testify(s); // the other side answers; nobody talks to the lawyer
+    expect(await until(() => outcomeOf(s) !== null)).toBe(true);
+    await until(() => !s.lawyer.isFollowing(1));
+
+    const view = s.lawyer.view(ref);
+    const notes = view.notes.map((n) => n.note).join("\n");
+    expect(notes).toMatch(/Court: .*(panel rules|Too close)/);
+    expect(notes).toMatch(/Counsel, under their breath/);
+    expect(notes).toMatch(/Ruling: /);
+    const last = view.messages.at(-1)!;
+    expect(last.role).toBe("lawyer");
+    expect(last.content).toMatch(/^(Well, that was fun, hahahahaha!|Well, sorry boss, we did our best\.|It's a compromise, boss\.)/);
+    expect(last.content).toMatch(/I'd predicted \d+%/);
+    expect(view.cases[0]).toMatchObject({ court_case_number: 1, outcome: expect.stringMatching(/won|lost|compromise/) });
+    expect(view.lessons).toHaveLength(1);
+    expect(s.court.db.prepare("SELECT COUNT(*) AS n FROM events WHERE kind = 'counsel.remark'").get()).toEqual({ n: 1 });
+  });
+
+  it("on boot, records rulings that happened while nobody was watching", async () => {
+    const s = setup([]);
+    const ref = s.lawyer.currentMatter();
+    const { id, number } = s.court.hearings.file({ ...BOTH_SIDES_LAWYER });
+    await s.court.hearings.start(id);
+    s.ctx.db.prepare("INSERT INTO cases(case_ref, title, court_case_number, predicted, created_at) VALUES (?, ?, ?, 0.7, ?)").run(ref, "Front seat", number, Date.now());
+
+    expect(await s.lawyer.reconcile(true)).toEqual({ settled: 1, following: 0 });
+    expect(outcomeOf(s)).toMatch(/won|lost|compromise/);
+    expect(s.lawyer.view(ref).messages.at(-1)!.content).toMatch(/I'd predicted 70%/);
+    expect(await s.lawyer.reconcile(true)).toEqual({ settled: 0, following: 0 }); // nothing twice
+  });
+
+  it("re-attaches to a hearing that's still waiting for testimony", async () => {
+    const s = setup([]);
+    const ref = s.lawyer.currentMatter();
+    const { id, number } = s.court.hearings.file({ ...BOTH_SIDES_LAWYER, filings: [] }); // one-sided: a summons
+    await s.court.hearings.start(id);
+    s.ctx.db.prepare("INSERT INTO cases(case_ref, title, court_case_number, predicted, created_at) VALUES (?, ?, ?, 0.6, ?)").run(ref, "Front seat", number, Date.now());
+
+    expect(await s.lawyer.reconcile(true)).toEqual({ settled: 0, following: 1 });
+    await testify(s);
+    expect(await until(() => outcomeOf(s) !== null)).toBe(true);
+  });
+
+  it("loading the lawyer page reconciles too", async () => {
+    const s = setup([]);
+    const ref = s.lawyer.currentMatter();
+    const { id, number } = s.court.hearings.file({ ...BOTH_SIDES_LAWYER });
+    await s.court.hearings.start(id);
+    s.ctx.db.prepare("INSERT INTO cases(case_ref, title, court_case_number, predicted, created_at) VALUES (?, ?, ?, 0.5, ?)").run(ref, "Front seat", number, Date.now());
+    const cookie = await login(s.root as any, TEST_ENV.LAWYER_PASSCODE);
+    expect((await s.root.request("/lawyer/api/state", { headers: { cookie } })).status).toBe(200);
+    expect(await until(() => outcomeOf(s) !== null)).toBe(true);
+  });
+});
+
+const BOTH_SIDES_LAWYER = {
+  plaintiff: "Pip",
+  defendant: "Sky Sister",
+  claim: "Sky Sister took the front seat even though I called it first.",
+  relief: "I get the front seat for a week.",
+  filedBy: "lawyer" as const,
+  filings: [{ author: "Sky Sister", kind: "response", body: "I was in the car first." }],
+};

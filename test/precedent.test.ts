@@ -239,3 +239,70 @@ describe("aliases everywhere, and reloading people.json", () => {
     expect(ctx.hearings.getCase(id)!.plaintiff_id).toBe("p2");
   });
 });
+
+describe("a 1–1 split: no “% sure”, the justices strongly disagree (fc-court showed 87%)", () => {
+  it("decide() gives a split even odds, and the card/record/opinion say the justices disagree", async () => {
+    const { decide } = await import("../src/shared/panel.ts");
+    const j = (p: number) => ({ choice: p >= 0.5 ? "plaintiff" : "defendant", confidence: Math.max(p, 1 - p), probabilities: { plaintiff: p, defendant: 1 - p } });
+    const d = decide({ caseType: "petition", justices: { justice_letter: j(0.9), justice_heart: j(0.15) } });
+    expect(d).toMatchObject({ status: "too_close", reason: "tie", lean: null, vote: "1–1", caseConfidence: 0.5 });
+  });
+
+  it("a stored split (old rulings kept the justices' own certainty) still hides the meter", async () => {
+    const { app, ctx } = makeApp({ BOX_RECORDS_FOLDER_ID: "rec" });
+    const cookie = await login(app);
+    const { id, number } = ctx.hearings.file({
+      plaintiff: "Pip",
+      defendant: "Sky Sister",
+      claim: "We both called the front seat at exactly the same time.",
+      relief: "Front seat today.",
+      filedBy: "pro_se",
+      filings: [{ author: "Sky Sister", kind: "response", body: "We called it at the same time." }],
+    });
+    await ctx.hearings.start(id);
+    // Rewrite the panel as a confident 1–1 split, as on fc-court (case_confidence 0.87).
+    const seat = (key: string, choice: string, p: number) => ({ key, status: "voted", choice, probabilities: { plaintiff: choice === "plaintiff" ? p : 1 - p, defendant: choice === "defendant" ? p : 1 - p }, confidence: p, name: key });
+    ctx.db
+      .prepare("UPDATE rulings SET outcome = 'compromise', vote = '1–1', case_confidence = 0.87, panel_json = ? WHERE case_id = ?")
+      .run(JSON.stringify([seat("justice_letter", "plaintiff", 0.9), seat("justice_heart", "defendant", 0.84), { key: "justice_memory", status: "recused", reason: "recused: no precedent yet", name: "justice_memory" }]), id);
+    const v = await (await app.request(`/api/cases/${number}`, { headers: { cookie } })).json();
+    expect(v.ruling.split).toBe(true);
+    expect(v.ruling.confidencePct).toBeNull();
+    const { renderRecord } = await import("../src/court/record.ts");
+    const { caseView } = await import("../src/court/views.ts");
+    const md = renderRecord(caseView(ctx.hearings.getCase(id)!, ctx), "Court");
+    expect(md).toContain("**Split 1–1:** the justices strongly disagree");
+    expect(md).not.toContain("**Confidence:**");
+  });
+});
+
+describe("a compromise on a petition needs a parent's OK too", () => {
+  it("too close on a petition → awaiting approval, approvable like a granted one", async () => {
+    const { app, ctx } = makeApp();
+    const parent = await login(app, TEST_ENV.PARENT_PASSCODE);
+    const { id, number } = ctx.hearings.file({
+      plaintiff: "Pip",
+      defendant: "The Big Cheese",
+      claim: "My bedtime should be later because we both called it at exactly the same time that we'd talk about it.",
+      relief: "Bedtime is 9pm on Fridays.",
+      filedBy: "pro_se",
+      filings: [{ author: "The Big Cheese", kind: "response", body: "We both called it at the same time, so let's discuss." }],
+    });
+    await ctx.hearings.start(id);
+    const c = ctx.hearings.getCase(id)!;
+    expect(c.type).toBe("petition");
+    expect(c.status).toBe("too_close");
+    expect(c.approval).toBe("pending");
+    const v = await (await app.request(`/api/cases/${number}`, { headers: { cookie: parent } })).json();
+    expect(v.ruling.petitionRecommended).toBe(true);
+    const ok = await app.request(`/cases/${number}/approval`, { method: "POST", headers: { "content-type": "application/json", cookie: parent }, body: JSON.stringify({ decision: "approve" }) });
+    expect(ok.status).toBe(200);
+  });
+
+  it("a petition the defendant wins needs nothing", async () => {
+    const { needsParentOk } = await import("../src/court/hearing.ts");
+    expect(needsParentOk({ kind: "ruled", decision: { outcome: "defendant" } as any }, "petition")).toBe(false);
+    expect(needsParentOk({ kind: "too_close", decision: null }, "petition")).toBe(true);
+    expect(needsParentOk({ kind: "too_close", decision: null }, "complaint")).toBe(false);
+  });
+});

@@ -33,6 +33,7 @@ describe("hearing pipeline", () => {
       "deliberation.started",
       "deliberation.done",
       "ruling.decided",
+      "articles.checked",
       "opinion.written",
       "case.closed",
     ]);
@@ -129,11 +130,22 @@ describe("opinion", () => {
     return { o, calls };
   };
 
-  it("writes with thinking off and keeps only real cited articles", async () => {
-    const { o, calls } = fakeOllama([{ opinion_md: "Pip wins.", bench_verdict: "Pip wins!", cited_articles: [1, 99] }]);
+  it("writes with thinking off and keeps the cited articles", async () => {
+    const { o, calls } = fakeOllama([{ opinion_md: "Under Article 1, Pip wins.", bench_verdict: "Pip wins!", cited_articles: [1] }]);
     const op = await writeOpinion(o, "persona", facts, () => {});
     expect(calls[0].think).toBe(false);
     expect(op).toMatchObject({ source: "llm", cited_articles: [1] });
+  });
+
+  it("rejects an opinion that cites an article it wasn't given (in the list or in the text)", async () => {
+    const strayList = { opinion_md: "Pip wins.", bench_verdict: "Pip wins!", cited_articles: [1, 99] };
+    const strayText = { opinion_md: "As Article 3 says, Pip wins.", bench_verdict: "Pip wins!", cited_articles: [1] };
+    const good = { opinion_md: "Article 1 settles it: Pip wins.", bench_verdict: "Pip wins!", cited_articles: [1] };
+    expect((await writeOpinion(fakeOllama([strayList, good]).o, "p", facts, () => {})).cited_articles).toEqual([1]);
+    const both = fakeOllama([strayText, strayText]);
+    const op = await writeOpinion(both.o, "p", facts, () => {});
+    expect(both.calls).toHaveLength(2);
+    expect(op.source).toBe("template");
   });
 
   it("regenerates once if the bench verdict doesn't name the winner, then uses the template", async () => {
@@ -169,5 +181,60 @@ describe("opinion", () => {
     expect(chat.body.think).toBe(false);
     expect(chat.body.format).toBeTypeOf("object");
     expect(chat.body.model).toBe("glm-5.3-flash");
+  });
+});
+
+describe("citations are checked for relevance before the opinion (fc-court: Dessert cited in a video-game case)", () => {
+  const VIDEO = {
+    plaintiff: "Pip",
+    defendant: "Sky Sister",
+    title: "The Controller Hog",
+    claim: "Sky Sister played the video game for an hour and wouldn't pass me the controller.",
+    relief: "I get the next two turns.",
+    filedBy: "pro_se" as const,
+    filings: [{ author: "Sky Sister", kind: "response", body: "I was about to beat the level." }],
+  };
+
+  it("asks Jev about every article in one request; the opinion only sees the relevant ones", async () => {
+    const replies = [
+      { opinion_md: "Under Article 3 (Dessert) and Article 4, Pip wins.", bench_verdict: "Pip wins!", cited_articles: [3, 4] },
+      { opinion_md: "Article 4 says turns are 30 minutes. Pip wins.", bench_verdict: "Pip wins!", cited_articles: [4] },
+    ];
+    const calls: any[] = [];
+    const ollama: Ollama = { chat: async () => ({ content: "", tool_calls: [] }), chatJson: async (_s, o) => (calls.push(o), replies.shift() as any) };
+    const ctx = makeCtx({}, { ollama }); // content/family-code.md: Max's ten articles
+    const before = stubCalls.length;
+    const { id, number } = ctx.hearings.file(VIDEO);
+    await ctx.hearings.start(id);
+
+    const check = stubCalls.slice(before).filter((c) => c.provider === "typesafe" && Object.keys(c.body.questions).some((k) => k.startsWith("article_")));
+    expect(check).toHaveLength(1);
+    expect(Object.keys(check[0].body.questions)).toHaveLength(10);
+
+    const prompt = calls[0].messages.at(-1).content as string;
+    expect(prompt).toContain("Article 4 (Video Game Turns)");
+    expect(prompt).not.toContain("Dessert");
+
+    // The first draft cited Dessert anyway, so it was rejected and rewritten.
+    expect(calls).toHaveLength(2);
+    const r = ctx.db.prepare("SELECT opinion_md, cited_articles_json FROM rulings WHERE case_id = ?").get(id) as any;
+    expect(JSON.parse(r.cited_articles_json)).toEqual([4]);
+    expect(r.opinion_md).not.toMatch(/Article 3/);
+    const ev = JSON.parse((ctx.db.prepare("SELECT data_json FROM events WHERE case_id = ? AND kind = 'articles.checked'").get(id) as any).data_json);
+    expect(ev.allowed).toEqual([4]);
+    expect(ev.scores.find((x: any) => x.number === 3).p).toBeLessThan(0.5);
+    expect(number).toBe(1);
+  });
+
+  it("with no relevant article, the opinion is told not to cite any", async () => {
+    const calls: any[] = [];
+    const ollama: Ollama = {
+      chat: async () => ({ content: "", tool_calls: [] }),
+      chatJson: async (_s, o) => (calls.push(o), { opinion_md: "The court rules for Pip.", bench_verdict: "Pip wins!", cited_articles: [] } as any),
+    };
+    const ctx = makeCtx({}, { ollama });
+    const { id } = ctx.hearings.file(HOT_DOG);
+    await ctx.hearings.start(id);
+    expect(calls[0].messages.at(-1).content).toContain("No Family Code article is relevant to this dispute");
   });
 });

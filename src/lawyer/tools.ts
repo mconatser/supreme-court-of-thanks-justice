@@ -36,6 +36,8 @@ export interface Pending {
 
 export interface ToolOutcome {
   result: unknown;
+  /** Keep following this court case in the background (the hearing paused). */
+  follow?: number;
   /** Plain words for "counsel's notes". */
   note: string;
   pause?: Pending;
@@ -52,6 +54,8 @@ export interface ToolDeps {
   onNote: (note: string) => void;
   /** The lawyer persona (content/lawyer-persona.md), for counsel's own voice. */
   persona?: () => string;
+  /** Court cases counsel has already chimed in on (once per case, across every watcher). */
+  remarked?: Set<number>;
 }
 
 const fn = (name: string, description: string, properties: Record<string, unknown>, required: string[] = []) => ({
@@ -120,8 +124,7 @@ export function bestWinPct(state: Pick<MatterState, "mock">): number | null {
 
 /** The persona's "When the case is weak" line (content/lawyer-persona.md), so it stays swappable. */
 export function weakCaseLine(persona: string): string {
-  const m = persona.match(/\*\*When the case is weak:\*\*\s*"([^"\n]+)"/i);
-  return m?.[1]?.trim() || DEFAULT_WEAK_CASE_LINE;
+  return personaLine(persona, "When the case is weak", DEFAULT_WEAK_CASE_LINE);
 }
 
 const norm = (f: Filing) => JSON.stringify([f.defendant, f.title, f.claim, f.relief, f.argument].map((x) => x.trim().replace(/\s+/g, " ")));
@@ -222,59 +225,27 @@ export async function runTool(name: string, args: Record<string, unknown>, state
         const n = Number(args.number ?? state.filedNumber);
         if (!Number.isInteger(n) || n <= 0) return fail("Wanted to watch a hearing without a case number.", "Give the case number.");
         deps.onNote(`Watching the hearing for case #${String(n).padStart(4, "0")}…`);
-        // A paused hearing (waiting for the other side's testimony) ends the watch for now. The
-        // stream replays old events first, so only a summons issued after we started counts.
-        const before = await deps.court.getCase(n);
-        // Paused means a summons is still unanswered (answering one is instant; the status catches up).
-        let paused = !before.final && (before.summons ?? []).some((s: { status: string }) => s.status === "pending");
-        // Events up to here are history (the stream replays them first).
-        const seen = Number(before.lastEventId ?? 0);
-        // While the justices confer, counsel may mutter one line into the transcript (it never
-        // reaches the judge's model). Only for new events, so a replay doesn't trigger it.
-        let remark: Promise<unknown> | null = null;
-        const onEvent = (e: { id: number; kind: string; message: string }) => {
-          deps.onNote(`Court: ${e.message}`);
-          if (!remark && /deliberation\.started$/.test(e.kind) && e.id > seen) {
-            remark = interject(deps, view0Title(before), e.message)
-              .then(async (line) => {
-                if (!line) return;
-                await deps.court.remark(n, line);
-                deps.onNote(`Counsel, under their breath: “${line}”`);
-              })
-              .catch(() => {});
-          }
-        };
-        const how = paused
-          ? "stopped"
-          : await deps.court.watch(n, onEvent, {
-              stopOn: (e) => (e.kind === "summons.issued" && e.id > seen ? (paused = true) : false),
-            });
-        if (remark) await remark;
-        const view = await deps.court.getCase(n);
+        const { view, paused } = await followHearing(deps, n, { stopOnSummons: true });
         if (!view.final) {
           const waiting = (view.summons ?? []).filter((s: { status: string }) => s.status === "pending").map((s: { party: string }) => s.party);
           return {
             ok: true,
-            note: paused || waiting.length ? `The court summoned ${waiting.join(" and ") || "the other side"}; the hearing waits for their testimony.` : "The hearing is still going.",
+            // Counsel keeps following in the background, and reports back when the court rules.
+            follow: n,
+            note: paused || waiting.length ? `The court summoned ${waiting.join(" and ") || "the other side"}; the hearing waits for their testimony. I'll keep an eye on it.` : "The hearing is still going. I'll keep an eye on it.",
             result: {
               done: false,
               status: view.status,
               waiting_for_testimony_from: waiting,
-              advice: "Tell your client the court is waiting for testimony. When they come back, call watch_hearing again.",
+              advice: "Tell your client the court is waiting for testimony. You'll keep watching in the background and report the ruling when it comes.",
             },
           };
         }
-        const r = view.ruling ?? {};
-        const outcome: Outcome =
-          r.outcome === "contempt" ? "contempt" : r.outcome === "compromise" ? "compromise" : r.winner?.toLowerCase() === deps.client.toLowerCase() ? "won" : "lost";
-        deps.db.prepare("UPDATE cases SET outcome = ?, vote = ? WHERE court_case_number = ?").run(outcome, r.vote ?? null, n);
-        const predicted = (deps.db.prepare("SELECT predicted FROM cases WHERE court_case_number = ?").get(n) as { predicted: number | null } | undefined)?.predicted;
-        const lesson = await writeLesson(deps.ollama, { title: view.title, outcome, predicted, seats: r.seats, opinion: r.opinionMd }).catch(() => null);
-        if (lesson) addLesson(deps.db, lesson);
+        const settled = await settleCase(deps, n, view);
         return {
           ok: true,
-          note: `Ruling: ${outcome === "won" ? "we won" : outcome === "lost" ? "we lost" : outcome}${r.vote ? ` (${r.vote})` : ""}.${lesson ? ` Lesson: ${lesson}` : ""}`,
-          result: { done: true, outcome, winner: r.winner, vote: r.vote, confidencePct: r.confidencePct, sentence: r.sentence?.text ?? null, benchVerdict: r.benchVerdict, lesson },
+          note: settled.fresh ? settled.note : "The ruling is in (already recorded).",
+          result: { done: true, ...settled.result },
         };
       }
       default:
@@ -286,6 +257,85 @@ export async function runTool(name: string, args: Record<string, unknown>, state
 }
 
 const view0Title = (v: { title?: string; claim?: string }) => `${v.title ?? ""}: ${v.claim ?? ""}`;
+
+/**
+ * Follow a hearing on the court's stream: every event goes into counsel's notes, and counsel may
+ * mutter one line while the justices confer. With stopOnSummons, a newly issued summons ends the
+ * follow (the hearing pauses for testimony). Returns the case as the court sees it afterwards.
+ */
+export async function followHearing(
+  deps: ToolDeps,
+  n: number,
+  opts: { stopOnSummons: boolean; maxMs?: number; signal?: AbortSignal },
+): Promise<{ view: any; paused: boolean }> {
+  const before = await deps.court.getCase(n);
+  // Paused means a summons is still unanswered (answering one is instant; the status catches up).
+  let paused = opts.stopOnSummons && !before.final && (before.summons ?? []).some((s: { status: string }) => s.status === "pending");
+  // Events up to here are history: the stream replays them first.
+  const seen = Number(before.lastEventId ?? 0);
+  let remark: Promise<unknown> | null = null;
+  const onEvent = (e: { id: number; kind: string; message: string }) => {
+    deps.onNote(`Court: ${e.message}`);
+    if (!remark && /deliberation\.started$/.test(e.kind) && e.id > seen && !deps.remarked?.has(n)) {
+      deps.remarked?.add(n);
+      remark = interject(deps, view0Title(before), e.message)
+        .then(async (line) => {
+          if (!line) return;
+          await deps.court.remark(n, line);
+          deps.onNote(`Counsel, under their breath: “${line}”`);
+        })
+        .catch(() => {});
+    }
+  };
+  if (!paused) {
+    await deps.court.watch(n, onEvent, {
+      maxMs: opts.maxMs,
+      signal: opts.signal,
+      stopOn: opts.stopOnSummons ? (e) => (e.kind === "summons.issued" && e.id > seen ? (paused = true) : false) : undefined,
+    });
+  }
+  if (remark) await remark;
+  return { view: await deps.court.getCase(n), paused };
+}
+
+export function outcomeOf(view: any, client: string): Outcome {
+  const r = view.ruling ?? {};
+  if (r.outcome === "contempt") return "contempt";
+  if (r.outcome === "compromise") return "compromise";
+  return r.winner?.toLowerCase() === client.toLowerCase() ? "won" : "lost";
+}
+
+/**
+ * Record a finished case once: outcome vs. prediction, and a one-line lesson. Safe to call from
+ * both the tool and a background follower (only the first one writes).
+ */
+export async function settleCase(deps: ToolDeps, n: number, view: any) {
+  const r = view.ruling ?? {};
+  const outcome = outcomeOf(view, deps.client);
+  const changes = deps.db.prepare("UPDATE cases SET outcome = ?, vote = ? WHERE court_case_number = ? AND outcome IS NULL").run(outcome, r.vote ?? null, n).changes;
+  const predicted = (deps.db.prepare("SELECT predicted FROM cases WHERE court_case_number = ?").get(n) as { predicted: number | null } | undefined)?.predicted ?? null;
+  let lesson: string | null = null;
+  if (changes) {
+    lesson = await writeLesson(deps.ollama, { title: view.title, outcome, predicted, seats: r.seats, opinion: r.opinionMd }).catch(() => null);
+    if (lesson) addLesson(deps.db, lesson);
+  }
+  const said = outcome === "won" ? "we won" : outcome === "lost" ? "we lost" : outcome === "compromise" ? "a compromise" : "contempt of court";
+  return {
+    fresh: changes > 0,
+    outcome,
+    predicted,
+    lesson,
+    note: `Ruling: ${said}${r.vote ? ` (${r.vote})` : ""}.${lesson ? ` Lesson: ${lesson}` : ""}`,
+    result: { outcome, winner: r.winner ?? null, vote: r.vote ?? null, confidencePct: r.confidencePct ?? null, sentence: r.sentence?.text ?? null, benchVerdict: r.benchVerdict ?? null, lesson },
+  };
+}
+
+/** A labelled line from the persona file ("**What they say when they win:** \"…\""), or a default. */
+export function personaLine(persona: string, label: string, fallback: string): string {
+  const esc = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const m = persona.match(new RegExp(`\\*\\*${esc}:\\*\\*\\s*"([^"\\n]+)"`, "i"));
+  return m?.[1]?.trim() || fallback;
+}
 
 /** One short, PG line supporting the client, in the lawyer's own voice. Never addressed to the judge. */
 async function interject(deps: ToolDeps, caseLine: string, moment: string): Promise<string | null> {

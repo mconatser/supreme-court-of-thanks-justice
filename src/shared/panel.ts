@@ -146,6 +146,21 @@ export function precedentRelevanceQuestion(ref: string): NoulQuestion {
   };
 }
 
+/** Before the opinion: is this Family Code article relevant to the dispute? (one per article, batched) */
+export function articleRelevanceQuestion(ref: string): NoulQuestion {
+  return {
+    type: "noul",
+    instructions: `Look only at the Family Code article whose ref is "${ref}" in articles. This article is relevant to this dispute.`,
+    criteria: {
+      true: "The dispute is about what this article covers, so it could guide the decision",
+      false: "The article is about something else, even if a word or two overlaps",
+    },
+  };
+}
+
+/** Cite an article only if Jev gives it at least this (SPEC follow-up: drop anything under 0.5). */
+export const ARTICLE_RELEVANCE = 0.5;
+
 /** Keep precedents Jev judged relevant (P >= 0.7), most relevant first, at most 8. */
 export function keepRelevant<P extends { ref?: string }>(candidates: P[], answers: Record<string, { noul?: number } | undefined>) {
   const scored = candidates.map((p) => ({ p, relevance: Number(answers[`relevant_${p.ref}`]?.noul ?? 0) }));
@@ -263,8 +278,9 @@ export function decide(input: {
   const meanJusticeConfidence = mean(voted.map((s) => s.confidence));
 
   if (!lean) {
-    const caseConfidence = mean(voted.map((s) => Math.max(s.probabilities.plaintiff, s.probabilities.defendant)));
-    return { status: "too_close", outcome: null, lean, vote, caseConfidence, meanJusticeConfidence, seats, sentenceLevel: null, reason: "tie" };
+    // A split has no side to be sure about: confident justices pulling opposite ways is the
+    // opposite of a sure court. Even odds, and the UI says "the justices strongly disagree".
+    return { status: "too_close", outcome: null, lean, vote, caseConfidence: 0.5, meanJusticeConfidence, seats, sentenceLevel: null, reason: "tie" };
   }
 
   const caseConfidence = mean(voted.map((s) => s.probabilities[lean]));

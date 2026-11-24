@@ -18,6 +18,8 @@ import {
   decide,
   deliberationQuestions,
   JUSTICE_KEYS,
+  ARTICLE_RELEVANCE,
+  articleRelevanceQuestion,
   keepRelevant,
   newEvidenceQuestion,
   precedentRelevanceQuestion,
@@ -117,6 +119,15 @@ export interface RulingData {
 type Actor = "clerk" | "bailiff" | "judge" | "court" | "executive" | "counsel";
 
 export class ApprovalError extends Error {}
+
+/**
+ * A petition changes a house rule, so the court can only recommend it: a granted petition, and a
+ * compromise on a petition (too close to call), both wait for a parent's OK.
+ */
+export function needsParentOk(r: Pick<RulingData, "kind" | "decision">, caseType: string | null): boolean {
+  if (caseType !== "petition") return false;
+  return (r.kind === "ruled" && r.decision?.outcome === "plaintiff") || r.kind === "too_close";
+}
 export class AppealError extends Error {}
 export class RemarkError extends Error {}
 export const MAX_REMARKS = 2;
@@ -309,6 +320,7 @@ export class Hearings {
 
     if (!this.lastEvent(c.id, "appeal.opinion.written")) {
       const facts = this.opinionFacts(c, code, decided, null, 1);
+      facts.articles = await this.relevantArticles(c, code, facts.articles);
       const op = await writeOpinion(this.ctx.ollama, this.ctx.persona(), facts, this.ctx.log);
       this.ctx.db
         .prepare("UPDATE rulings SET opinion_md = ?, bench_verdict = ?, cited_articles_json = ? WHERE case_id = ? AND round = 1")
@@ -324,7 +336,7 @@ export class Hearings {
     const ruling = decided ?? original;
     const status: CaseStatus = ruling.kind === "too_close" ? "too_close" : "ruled";
     this.ctx.db.prepare("UPDATE cases SET status = ?, ruled_at = ? WHERE id = ?").run(status, Date.now(), id);
-    const granted = ruling.kind === "ruled" && ruling.decision?.outcome === "plaintiff" && c.type === "petition";
+    const granted = needsParentOk(ruling, c.type);
     if (granted) this.ctx.db.prepare("UPDATE cases SET approval = 'pending' WHERE id = ? AND approval IS NULL").run(id);
 
     await this.syncRecord(id);
@@ -419,6 +431,47 @@ export class Hearings {
     this.emit(c.id, "court", "case.vacated", "Mistrial! These proceedings never happened. (The Box record remembers.)");
     this.emit(c.id, "bailiff", "case.closed", "The case is closed. It never happened.", { status: "vacated" });
     return true;
+  }
+
+  // ---------- which articles the opinion may cite ----------
+
+  /**
+   * One batched Jev request: "Article N is relevant to this dispute" for every article; the opinion
+   * may only cite those at or above ARTICLE_RELEVANCE. (On fc-court an opinion cited Article 3,
+   * Dessert, in a video-game case.) Stored on an event, so the appeal opinion reuses it.
+   */
+  private async relevantArticles(c: CaseRow, code: FamilyCode, all: { number: number; title: string }[]): Promise<{ number: number; title: string }[]> {
+    if (!all.length) return [];
+    let check = this.data<{ scores: { number: number; p: number }[]; allowed: number[] }>(c.id, "articles.checked");
+    if (!check) {
+      try {
+        const articles = code.articles.map((a) => ({ ref: `A${a.number}`, number: a.number, title: a.title, text: a.body }));
+        const questions = Object.fromEntries(articles.map((a) => [`article_${a.ref}`, articleRelevanceQuestion(a.ref)]));
+        const state = {
+          case: buildState({ case: c, filings: [] }).case,
+          filings: this.filings(c.id, true).map((f) => ({ author: f.author, kind: f.kind, body: f.body })),
+          articles,
+        };
+        const res = await this.ctx.jev.ask(state, questions);
+        const answers = res.answers as Record<string, { noul: number }>;
+        const scores = articles.map((a) => ({ number: a.number, p: Number(answers[`article_${a.ref}`]?.noul ?? 0) }));
+        check = { scores, allowed: scores.filter((x) => x.p >= ARTICLE_RELEVANCE).map((x) => x.number) };
+        const names = check.allowed.map((n) => `Article ${n}`);
+        this.emit(
+          c.id,
+          "clerk",
+          "articles.checked",
+          names.length ? `The clerk marks the relevant laws: ${names.join(", ")}.` : "The clerk finds no article of the Family Code that fits this one.",
+          check,
+        );
+      } catch (err) {
+        // Out of Jev budget, or Jev unreachable: write the opinion without citing any article.
+        this.ctx.log(`[opinion] couldn't check article relevance: ${(err as Error).message}`);
+        return [];
+      }
+    }
+    const allowed = new Set(check.allowed);
+    return all.filter((a) => allowed.has(a.number));
   }
 
   // ---------- counsel's remarks ----------
@@ -938,8 +991,9 @@ export class Hearings {
       if (caseType === "petition" && decision.outcome === "plaintiff") msg += " Recommended to the Executive Branch (a parent) for approval.";
       if (sentenceText) msg += ` Sentence: ${sentenceText}.`;
     } else {
-      const lean = decision.lean ? `leaning ${decision.lean === "plaintiff" ? c.plaintiff : c.defendant} ${decision.vote}` : `split ${decision.vote}`;
-      msg = `Too close to call (${lean}, only ${confidencePct}% sure). The court will order a compromise.`;
+      msg = decision.lean
+        ? `Too close to call (leaning ${decision.lean === "plaintiff" ? c.plaintiff : c.defendant} ${decision.vote}, only ${confidencePct}% sure). The court will order a compromise.`
+        : `Too close to call: the justices split ${decision.vote} and strongly disagree. The court will order a compromise.`;
     }
     return msg;
   }
@@ -961,7 +1015,8 @@ export class Hearings {
     }
     const winner = decision.outcome ? (decision.outcome === "plaintiff" ? c.plaintiff : c.defendant) : null;
     const sentenceText = decision.sentenceLevel !== null ? code.sentencing[decision.sentenceLevel] : null;
-    const confidencePct = Math.round(decision.caseConfidence * 100);
+    // No "% sure" on a split: there's no side the court leans to.
+    const confidencePct = decision.reason === "tie" ? null : Math.round(decision.caseConfidence * 100);
     return {
       kind: decision.status,
       decision,
@@ -1008,6 +1063,7 @@ export class Hearings {
     const id = c.id;
     if (!this.lastEvent(id, "opinion.written")) {
       const facts = this.opinionFacts(c, code, ruling, inAbsentia ?? null);
+      facts.articles = await this.relevantArticles(c, code, facts.articles);
       const op = await writeOpinion(this.ctx.ollama, this.ctx.persona(), facts, this.ctx.log);
       this.ctx.db
         .prepare("UPDATE rulings SET opinion_md = ?, bench_verdict = ?, cited_articles_json = ? WHERE case_id = ? AND round = 0")
@@ -1018,7 +1074,7 @@ export class Hearings {
     const final: CaseStatus = ruling.kind === "contempt" ? "contempt" : ruling.kind === "too_close" ? "too_close" : "ruled";
     this.ctx.db.prepare("UPDATE cases SET status = ?, ruled_at = ? WHERE id = ?").run(final, Date.now(), id);
     // A granted petition is only a recommendation until a parent approves it.
-    const granted = ruling.kind === "ruled" && ruling.decision?.outcome === "plaintiff" && this.getCase(id)!.type === "petition";
+    const granted = needsParentOk(ruling, this.getCase(id)!.type);
     if (granted) this.ctx.db.prepare("UPDATE cases SET approval = 'pending' WHERE id = ? AND approval IS NULL").run(id);
 
     // 8. Record: file it in Box (never blocks the gavel; retried on the next boot), then notices.

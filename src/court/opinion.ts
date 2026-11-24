@@ -72,7 +72,11 @@ export function opinionUserPrompt(f: OpinionFacts): string {
     }
   } else if (f.kind === "too_close") {
     lines.push("Decision: too close to call. The court orders a compromise. Propose one fair, specific compromise. No sentence.");
-    lines.push(f.lean ? `The panel leaned slightly toward ${f.lean} (${f.vote}), but not enough to decide.` : `The panel split evenly (${f.vote}).`);
+    lines.push(
+      f.lean
+        ? `The panel leaned slightly toward ${f.lean} (${f.vote}), but not enough to decide.`
+        : `The panel split evenly (${f.vote}): the justices strongly disagree, each pulling a different way. Don't give a "% sure" number.`,
+    );
     lines.push(`Winner: neither (compromise)`, `Other party: ${f.plaintiff} and ${f.defendant}`);
   } else {
     lines.push(`Decision: ${f.contemnor} is held in CONTEMPT OF COURT for trying to bribe, trick, flatter or boss around the court. Their filing is struck. Scold them, kindly, in the judge's voice.`);
@@ -90,7 +94,11 @@ export function opinionUserPrompt(f: OpinionFacts): string {
   if (f.dissenter) lines.push(`Dissent: written by ${f.dissenter}`);
   if (f.sentence) lines.push(`Sentence (level ${f.sentence.level}): ${f.sentence.text}`);
   if (f.inAbsentia) lines.push(`Note: ${f.inAbsentia} was not heard; mention that the ruling was made in absentia.`);
-  if (f.articles.length) lines.push(`Family Code articles you may cite: ${f.articles.map((a) => `Article ${a.number} (${a.title})`).join("; ")}`);
+  lines.push(
+    f.articles.length
+      ? `Family Code articles you may cite (only these; they are the ones relevant to this dispute): ${f.articles.map((a) => `Article ${a.number} (${a.title})`).join("; ")}`
+      : "No Family Code article is relevant to this dispute, so don't cite any article.",
+  );
   if (f.filings.length) {
     lines.push("Filings:");
     for (const fl of f.filings) lines.push(`- ${fl.author} (${fl.kind}): ${fl.body}`);
@@ -112,6 +120,11 @@ export function validateOpinion(o: z.infer<typeof OpinionSchema>, f: OpinionFact
   if (!namesTheRightParty(o.bench_verdict, f)) return "bench verdict doesn't name the right party";
   const words = o.opinion_md.trim().split(/\s+/).length;
   if (words > 300) return "opinion too long";
+  // Only articles judged relevant may be cited, in the list or anywhere in the text.
+  const allowed = new Set(f.articles.map((a) => a.number));
+  const mentioned = [...`${o.opinion_md} ${o.bench_verdict}`.matchAll(/\bArticles?\s+(\d+)/gi)].map((m) => Number(m[1]));
+  const stray = [...new Set([...mentioned, ...o.cited_articles])].filter((n) => !allowed.has(n));
+  if (stray.length) return `cites an article that isn't relevant (Article ${stray.join(", ")})`;
   return null;
 }
 
@@ -125,7 +138,7 @@ export function templateOpinion(f: OpinionFacts): Opinion {
     body = `**${num}: ${f.title}**\n\n${f.contemnor} tried to sway this court with something other than arguments. That is **contempt of court**, and the filing is struck.${f.sentence ? `\n\n**Sentence:** ${f.sentence.text}` : ""}\n\nArgue your case, not your snacks. So ordered.`;
     bench = `${f.contemnor} is held in contempt of court! Nice try. ${f.sentence ? f.sentence.text + "." : ""}`;
   } else if (f.kind === "too_close") {
-    const lean = f.lean ? ` The panel leaned toward ${f.lean} (${f.vote}), but not by enough.` : f.vote ? ` The panel split ${f.vote}.` : "";
+    const lean = f.lean ? ` The panel leaned toward ${f.lean} (${f.vote}), but not by enough.` : f.vote ? ` The justices split ${f.vote} and strongly disagree.` : "";
     body = `**${num}: ${f.title}**\n\nThis one is too close to call.${lean}${pct} The court orders a **compromise**: ${f.plaintiff} and ${f.defendant} take turns, starting with whoever lost the last coin toss.${absentia}\n\nSo ordered.`;
     bench = `Too close to call! The court orders a compromise between ${f.plaintiff} and ${f.defendant}.`;
   } else {

@@ -262,6 +262,12 @@ function jevStub(req: { model?: string; state: any; questions: Record<string, an
       } else if (key === "sufficient") {
         const heard: unknown[] = state.computed_facts?.parties_heard ?? [];
         p = heard.length >= 2 ? rules.sufficient.both_heard : rules.sufficient.one_heard;
+      } else if (key.startsWith("article_")) {
+        // An article is relevant when a word of its title shows up in the dispute.
+        const ref = key.slice("article_".length);
+        const art = (state.articles ?? []).find((a: any) => a.ref === ref);
+        const text = words([state.case?.title, state.case?.claim, state.case?.relief, ...(state.filings ?? []).map((f: any) => f.body)].join(" "));
+        p = art && [...words(art.title ?? "")].some((w) => text.has(w)) ? 0.86 : 0.08;
       } else if (key.startsWith("relevant_")) {
         // Relevant when the past ruling shares enough real words with the current dispute.
         const ref = key.slice("relevant_".length);

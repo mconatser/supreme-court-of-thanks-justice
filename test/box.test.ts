@@ -177,10 +177,10 @@ describe("court records in Box", () => {
     expect(stubBox.latest(file.id)).toContain("APPROVED by the Executive Branch");
   });
 
-  it("the opinion cites only articles that exist in the Box Family Code", async () => {
+  it("the opinion cites only articles that exist in the Box Family Code (and are relevant)", async () => {
     const { app, ctx } = makeApp(BOX_ENV);
     const cookie = await login(app);
-    const { id, number } = ctx.hearings.file(CASE);
+    const { id, number } = ctx.hearings.file({ ...CASE, claim: "I called dibs on the front seat, and Sky Sister took it anyway." });
     await ctx.hearings.start(id);
     const view = await (await app.request(`/api/cases/${number}`, { headers: { cookie } })).json();
     expect(view.ruling.citedArticles).toEqual([{ number: 1, title: "Dibs" }]);
