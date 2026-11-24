@@ -85,7 +85,7 @@ sprite config update -s fc-court --url-auth public    # the passcodes protect it
 On your phone, open `fc-court`'s URL and:
 
 - [ ] Log in with the court passcode and see an empty docket. A fresh court starts at Case #0001.
-- [ ] File a case that resembles one of Max's landmarks. Justice Memory should vote and cite it.
+- [ ] File a case that resembles one of Max's landmarks. Justice Jack should vote and cite it.
 - [ ] Check that the record appears in Box under `Court Records` and the verdict plays after the gavel.
 - [ ] File a one-sided case. A summons should go out (by email if the person has one), and answering it should resume the hearing.
 

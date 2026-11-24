@@ -9,20 +9,25 @@
 #   .release-scrub.local  author: Name <email>      the identity every commit is attributed to
 #                         rename: OLD.md:NEW.md     files to rename across history (optional, repeatable)
 #
-#   scripts/release-scrub.sh             # dry run (default): scrub a throwaway clone, run the audit on it
-#   scripts/release-scrub.sh --apply     # write the scrubbed repo to --out (never pushes)
+#   scripts/release-scrub.sh --public-repo OWNER/NAME           # dry run: scrub a throwaway clone, audit it
+#   scripts/release-scrub.sh --public-repo OWNER/NAME --apply   # write the scrubbed repo to --out (never pushes)
 #   options: --out DIR (default ../family-court-release)
+#
+# --public-repo is the NEW public repo the scrubbed master goes to. Every link to this private repo
+# (the clone URLs in FC_COURT_SETUP.md and FC_LAWYER_SETUP.md) is rewritten to point at it.
 #
 # Needs git-filter-repo (uv tool install git-filter-repo==2.47.0).
 set -euo pipefail
 
 OUT=""
+PUBLIC=""
 APPLY=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --out) OUT="$2"; shift 2 ;;
+    --public-repo) PUBLIC="$2"; shift 2 ;;
     --apply) APPLY=1; shift ;;
-    -h | --help) sed -n '2,19p' "$0"; exit 0 ;;
+    -h | --help) sed -n '2,22p' "$0"; exit 0 ;;
     *) echo "Unknown option: $1 (try --help)" >&2; exit 1 ;;
   esac
 done
@@ -30,6 +35,12 @@ done
 REPO="$(git rev-parse --show-toplevel)"
 cd "$REPO"
 die() { echo "release-scrub: $*" >&2; exit 1; }
+# The private repo's GitHub name (OWNER/NAME), from origin, and the public one it's released as.
+PRIVATE="$(git remote get-url origin | sed -E 's#^(https://github\.com/|git@github\.com:)##; s#\.git$##')"
+PUBLIC="$(echo "$PUBLIC" | sed -E 's#^(https://github\.com/|git@github\.com:)##; s#\.git$##; s#/$##')"
+[ -n "$PUBLIC" ] || die "say where it's going: --public-repo OWNER/NAME (the new public repo)."
+[[ "$PUBLIC" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || die "--public-repo should look like OWNER/NAME, not: $PUBLIC"
+[ "$PUBLIC" != "$PRIVATE" ] || die "--public-repo is this private repo; it should be the new public one."
 for f in people.json .private-terms .release-scrub.local; do [ -f "$f" ] || die "missing $f (gitignored; see the top of this script)."; done
 for f in people.json .private-terms .release-scrub.local; do git check-ignore -q "$f" || die "$f must be gitignored."; done
 command -v git-filter-repo >/dev/null || die "git-filter-repo isn't installed (uv tool install git-filter-repo==2.47.0)."
@@ -51,9 +62,9 @@ chmod 700 "$RULES"
 trap 'rm -rf "$RULES"; [ "$APPLY" = 1 ] || rm -rf "$(dirname "$WORK")"' EXIT
 
 # Build the rules from the private files. Prints counts only, never the words themselves.
-python3 - "$RULES" <<'PY'
+python3 - "$RULES" "$PRIVATE" "$PUBLIC" <<'PY'
 import json, re, sys
-out = sys.argv[1]
+out, private_repo, public_repo = sys.argv[1:4]
 people = json.load(open("people.json"))
 GENERIC = {"dad", "mom", "gma", "gpa", "grandma", "grandpa", "mother", "father"}
 local = [l.strip() for l in open(".release-scrub.local") if l.strip() and not l.startswith("#")]
@@ -84,6 +95,8 @@ for p in people:
     email = (p.get("email") or "").strip()
     if email:
         rules.append((r"(?i)" + re.escape(email), "[email removed]"))
+# Links to this private repo → the new public one (github.com/OWNER/NAME, with or without .git).
+rules.append((r"(?i)github\.com([/:])" + re.escape(private_repo) + r"(?![A-Za-z0-9_-])", r"github.com\1" + public_repo))
 for line in open(".private-terms"):
     line = line.strip()
     if not line or line.startswith("#") or line.lower().startswith("allow:"):
@@ -125,6 +138,11 @@ if [ "$BEFORE_DATES" = "$AFTER_DATES" ]; then
 else
   echo "  !! commit dates changed"; OK=0
 fi
+# The setup docs must clone the public repo, and nothing at HEAD may still point at the private one.
+for doc in FC_COURT_SETUP.md FC_LAWYER_SETUP.md; do
+  if grep -q "github.com/$PUBLIC.git" "$WORK/$doc"; then echo "Links:   $doc clones github.com/$PUBLIC"; else echo "  !! $doc doesn't clone github.com/$PUBLIC"; OK=0; fi
+done
+if grep -rIl --exclude-dir=.git -i "github.com[/:]$PRIVATE" "$WORK" >/dev/null; then echo "  !! still links to the private repo:"; grep -rIl --exclude-dir=.git -i "github.com[/:]$PRIVATE" "$WORK" | sed "s#^$WORK/#     #"; OK=0; fi
 REFS="$(git -C "$WORK" for-each-ref --format='%(refname)' | grep -v "^refs/heads/$BRANCH\$" | grep -v '^refs/remotes/' || true)"
 if [ -n "$REFS" ]; then echo "  !! other refs in the scrubbed repo:"; echo "$REFS" | sed 's/^/     /'; OK=0; else echo "Refs:    $BRANCH only, no tags"; fi
 echo "Authors and committers after:"
@@ -146,10 +164,10 @@ if [ "$APPLY" = 1 ]; then
   cat <<EOF
 The scrubbed repo is ready at: $WORK
 Nothing has been pushed. It goes to a NEW public repo; this private repo stays as it is.
-  1. On GitHub, create a new empty public repo (no README, license or .gitignore).
+  1. On GitHub, create the new empty public repo $PUBLIC (no README, license or .gitignore).
   2. Push the scrubbed $BRANCH, and only $BRANCH (no tags):
        cd "$WORK"
-       git remote add public https://github.com/<you>/<new-repo>.git
+       git remote add public https://github.com/$PUBLIC.git
        git push public $BRANCH
   3. Check it on GitHub before you share the link: search the repo for the names, and look at a
      few old commits. Their dates should fall between Nov 23 and Nov 25.

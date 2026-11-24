@@ -11,9 +11,11 @@ Built for [Fly.io Hacksgiving 2026](https://fly.io/hacksgiving/) by a dad and hi
 - **Separation of powers is enforced by infrastructure.** The two Sprites can't touch each other's tools: connector access policies give only the courthouse Box, email and the judge's voice. When the lawyer tries to contact a witness directly, it gets a 403.
 - **The Box record remembers what the Sprite forgot.** A mistrial rewinds the courthouse Sprite to its checkpoint from before the ruling, and Box keeps the VACATED record.
 
+**The cast,** all named by the 11-year-old lawmaker: the lawyer is **Greg**, the judge is **Judge Andy Gravy**, and the three justices are **Cody**, **Grace** and **Jack**.
+
 > Every name in this repo, the demo and the recording is a made-up "court alias". Real names live only in a gitignored `people.json` and a private Box account.
 
-<p align="center"><img src="docs/screenshots/ruling-card-split-compromise.png" alt="A ruling card: Justice Cody votes Max at 91%, Justice Grace votes Dad at 66%, Justice Jack recuses with no relevant precedent; too close to call, the justices strongly disagree, so the court orders a compromise" width="640"></p>
+<p align="center"><img src="docs/screenshots/ruling-card.png" alt="The lawmaker's ruling card for Case #0011, Max v. Chozyn: Justice Cody and Justice Grace vote Chozyn at 81%, Justice Jack votes Chozyn at 95% citing Case #0007; the score reads Max 0–3 Chozyn, the court is 86% sure, and the judge's quote is above a Hear the verdict button" width="640"></p>
 
 ## How a case goes
 
@@ -42,12 +44,12 @@ Built for [Fly.io Hacksgiving 2026](https://fly.io/hacksgiving/) by a dad and hi
 4. **Sufficiency.** If the record isn't enough to decide fairly and one side hasn't been heard, the court **summons** them by email (AgentMail) or in person, then pauses. Testimony is screened for contempt too. After a timeout the court decides *in absentia*.
 5. **Precedent.** Keyword matches from past rulings plus the lawmaker's *landmark cases* go to Jev in one batched relevance check. Only P ≥ 0.7 reaches the panel.
 6. **Deliberation.** One Jev request asks three justices three different questions:
-   - **Justice Letter:** "Under the Family Code exactly as written, which side should prevail?"
-   - **Justice Heart:** "Setting the Family Code aside, which outcome is fairer to everyone involved?"
-   - **Justice Memory:** "Which outcome is most consistent with this court's past rulings?" (She recuses when there's no relevant precedent.)
+   - **Justice Cody** (the Family Code as written): "Under the Family Code exactly as written, which side should prevail?"
+   - **Justice Grace** (what's fair to everyone): "Setting the Family Code aside, which outcome is fairer to everyone involved?"
+   - **Justice Jack** (past rulings): "Which outcome is most consistent with this court's past rulings?" (He recuses when there's no relevant precedent.)
 7. **Ruling.** Code applies the confidence rules: majority vote; `case_confidence` is the mean probability the justices gave the winner. Under 0.55 (or low justice confidence) it's **too close to call**, and the court orders a compromise and says which way it leaned. Complaints the plaintiff wins get a sentence from the kid-written guidelines; granted petitions wait for a parent's OK.
 8. **Opinion and record.** Ollama writes a short, funny, PG opinion around the decided facts (it can't change them). The record is filed to Box, notices are emailed, and the bench verdict is spoken by ElevenLabs.
-9. **Gavel.** Bang. The case page plays the gavel, then the verdict.
+9. **Gavel.** On the case page, Judge Andy Gravy reads the verdict and ends with "The end!!!", then the gavel bangs three times.
 
 <table><tr>
 <td><img src="docs/screenshots/summons-email.png" alt="A summons email from the Clerk of the Court: Hear ye, hear ye, Dad! Max has brought a case to The Supreme Court of Thanks-Justice, with a Tell the court your side button"></td>
@@ -55,6 +57,15 @@ Built for [Fly.io Hacksgiving 2026](https://fly.io/hacksgiving/) by a dad and hi
 </tr><tr><td align="center"><em>A summons goes out by email…</em></td><td align="center"><em>…and the answer resumes the hearing.</em></td></tr></table>
 
 Every step appends to an event log that streams to the case page over SSE, and every Jev answer is stored with its step. Jev's probabilities drift a few points between identical runs, so a hearing that resumes after a Sprite nap reuses its stored answers rather than asking again and risking a different verdict.
+
+## Mistrial
+
+A parent can declare a mistrial. The courthouse Sprite is restored to the checkpoint it took just before the ruling, so on the court's side the case never happened. Box sits outside the Sprite, though, so the court record survives, stamped VACATED.
+
+<table><tr>
+<td><img src="docs/screenshots/mistrial-never-happened.png" alt="A case transcript ending in: Mistrial! These proceedings never happened. (The Box record remembers.) The bailiff: The case is closed. It never happened."></td>
+<td><img src="docs/screenshots/mistrial-box-vacated.png" alt="The Box record for Case #0007, The Thermostat Tussle, Max v. Dad, headed VACATED: a mistrial was declared and the courthouse was rewound, but this record remembers"></td>
+</tr><tr><td align="center"><em>A parent rewinds time…</em></td><td align="center"><em>…and Box remembers.</em></td></tr></table>
 
 ## The lawyer
 
@@ -97,7 +108,7 @@ npm start                       # http://localhost:8080
 - `npm run eval:live` runs the test cases against real Jev and reports outcomes and bands (never exact values), for tuning thresholds.
 - `MODE=all` runs both apps in one process. `MODE=court` and `MODE=lawyer` split them across Sprites; the lawyer only ever talks to the court over HTTP.
 
-Deploying: see [`FC_COURT_SETUP.md`](FC_COURT_SETUP.md) and `scripts/deploy.sh <sprite>`.
+Deploying: see [`FC_COURT_SETUP.md`](FC_COURT_SETUP.md) (the courthouse) and [`FC_LAWYER_SETUP.md`](FC_LAWYER_SETUP.md) (the lawyer), and `scripts/deploy.sh <sprite>`.
 
 ## Connectors (Sprites)
 
@@ -115,6 +126,6 @@ TypeScript run by `tsx` (no build step), [Hono](https://hono.dev), `better-sqlit
 
 ## Credits
 
-- The Family Code, the judge and lawyer personas, the test cases, the ruling card and the sounds are by the lawmaker, age 11.
-- Decisions by [TypeSafe Jev](https://typesafe.ai) · Voice by [ElevenLabs](https://elevenlabs.io) · Running on [Fly.io Sprites](https://sprites.dev).
+- The Family Code, the judge and lawyer personas, the landmark cases, the test cases, the ruling card, the judge's voice and the sounds are by the lawmaker, age 11.
+- Voice by [ElevenLabs](https://elevenlabs.io) · Decisions by [TypeSafe Jev](https://typesafe.ai) · Opinions by [Ollama](https://ollama.com) · Records in [Box](https://www.box.com) · Mail by [AgentMail](https://agentmail.to) · Running on [Fly.io Sprites](https://sprites.dev).
 - Built with Claude Code.
