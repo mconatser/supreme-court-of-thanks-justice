@@ -56,19 +56,27 @@ export function caseSummary(c: CaseRow, ctx: CourtContext) {
     vote: r?.vote ?? null,
     confidencePct: r?.case_confidence != null ? Math.round(r.case_confidence * 100) : null,
     lean: lean ? { side: lean.side, party: sideName(lean.side), vote: lean.vote } : null,
+    approval: c.approval ?? null,
     summoned: summons.map((s) => ctx.people.find((p) => p.id === s.person_id)?.alias).filter(Boolean),
   };
 }
 
-export function caseView(c: CaseRow, ctx: CourtContext) {
+export function caseView(c: CaseRow, ctx: CourtContext, roles: string[] = []) {
   const L = labelsFor(ctx.people, c);
   const filings = ctx.db.prepare("SELECT * FROM filings WHERE case_id = ? ORDER BY id").all(c.id) as FilingRow[];
   const r = ctx.db.prepare("SELECT * FROM rulings WHERE case_id = ? ORDER BY round DESC LIMIT 1").get(c.id) as RulingRow | undefined;
   const code = ctx.familyCode.load();
   const sideName = (s: Side) => (s === "plaintiff" ? L.plaintiff : L.defendant);
-  const citedCase = (n: number) => {
+  /** A cite is "P7" (case #0007), "L1" (landmark) or, from early Phase 1 rulings, a bare case number. */
+  const cited = (ref: string | number) => {
+    const s = String(ref);
+    if (s.startsWith("L")) {
+      const lm = ctx.landmarks.find(s);
+      return { ref: s, label: `Landmark ${s}`, title: lm?.title ?? "", landmark: true };
+    }
+    const n = Number(s.replace(/^P/, ""));
     const k = ctx.db.prepare("SELECT * FROM cases WHERE number = ?").get(n) as CaseRow | undefined;
-    return { number: n, label: caseLabel(n), title: k ? labelsFor(ctx.people, k).relabel(k.title) : "" };
+    return { ref: `P${n}`, number: n, label: caseLabel(n), title: k ? labelsFor(ctx.people, k).relabel(k.title) : "", landmark: false };
   };
 
   let ruling = null;
@@ -83,12 +91,12 @@ export function caseView(c: CaseRow, ctx: CourtContext) {
             side: s.choice,
             party: sideName(s.choice),
             pct: Math.round(s.probabilities[s.choice] * 100),
-            cites: (s.cites ?? []).map(citedCase),
+            cites: (s.cites ?? []).map(cited),
           }
         : { key: s.key, name: s.name, status: s.status, reason: s.reason },
     );
     const lean = r.outcome === "compromise" ? leanOf(stored) : null;
-    const cited = r.cited_articles_json ? (JSON.parse(r.cited_articles_json) as number[]) : [];
+    const citedArticles = r.cited_articles_json ? (JSON.parse(r.cited_articles_json) as number[]) : [];
     const struckAuthor = filings.find((f) => f.struck);
     ruling = {
       outcome: r.outcome,
@@ -102,7 +110,7 @@ export function caseView(c: CaseRow, ctx: CourtContext) {
       petitionRecommended: c.type === "petition" && r.outcome === "plaintiff",
       opinionMd: L.relabel(r.opinion_md),
       benchVerdict: L.relabel(r.bench_verdict),
-      citedArticles: cited.map((n) => ({ number: n, title: code.articles.find((a) => a.number === n)?.title ?? "" })),
+      citedArticles: citedArticles.map((n) => ({ number: n, title: code.articles.find((a) => a.number === n)?.title ?? "" })),
     };
   }
 
@@ -113,6 +121,7 @@ export function caseView(c: CaseRow, ctx: CourtContext) {
     filedBy: c.filed_by,
     ruledAt: c.ruled_at,
     running: ctx.hearings.isRunning(c.id),
+    viewer: { isParent: roles.includes("parent") },
     filings: filings.map((f) => ({
       author: L.party(f.author, f.author_id),
       kind: f.kind,

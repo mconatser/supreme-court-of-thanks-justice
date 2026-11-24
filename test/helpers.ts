@@ -26,7 +26,8 @@ export const TEST_PEOPLE = parsePeople([
 
 export function makeCtx(env: Record<string, string> = {}, o: ContextOverrides = {}): CourtContext {
   const cfg = loadConfig({ ...TEST_ENV, ...env });
-  return createCourtContext(cfg, TEST_PEOPLE, { dbPath: ":memory:", log: () => {}, ...o });
+  // No landmarks unless a test asks for them, so precedent tests stay about what they test.
+  return createCourtContext(cfg, TEST_PEOPLE, { dbPath: ":memory:", log: () => {}, landmarksPath: "test/no-landmarks.md", ...o });
 }
 
 export function makeApp(env: Record<string, string> = {}, opts: CourtAppOptions = {}, o: ContextOverrides = {}) {

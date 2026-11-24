@@ -10,7 +10,8 @@ const PersonSchema = z.object({
   name: z.string().default(""),
   alias: z.string().default(""),
   email: z.string().default(""),
-  role: z.enum(["parent", "kid"]),
+  /** guests can file and be parties; only parents approve petitions. */
+  role: z.enum(["parent", "kid", "guest"]),
 });
 
 export type Person = z.infer<typeof PersonSchema>;
@@ -22,7 +23,7 @@ export function parsePeople(raw: unknown, source = "people.json"): Person[] {
   if (!parsed.success) {
     const lines = parsed.error.issues.map((i) => `  - entry ${i.path.join(".")}: ${i.message}`);
     throw new PeopleError(
-      `${source} doesn't look right yet. Each person needs an id, an alias and a role (parent or kid):\n${lines.join("\n")}`,
+      `${source} doesn't look right yet. Each person needs an id, an alias and a role (parent, kid or guest):\n${lines.join("\n")}`,
     );
   }
   const people = parsed.data.map((p) => ({ ...p, alias: p.alias.trim(), email: p.email.trim() }));

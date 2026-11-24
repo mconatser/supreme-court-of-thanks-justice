@@ -94,7 +94,7 @@ describe("precedent relevance (Justice Memory)", () => {
 
     const seat = memorySeat(ctx, id);
     expect(seat.status).toBe("voted");
-    expect(seat.cites).toEqual([2]);
+    expect(seat.cites).toEqual(["P2"]);
   });
 
   it("a resumed hearing reuses the stored relevance answers", async () => {
@@ -107,7 +107,7 @@ describe("precedent relevance (Justice Memory)", () => {
     ctx.db.prepare("UPDATE cases SET status = 'deliberating' WHERE id = ?").run(id);
     await ctx.hearings.start(id);
     expect(relevanceCalls(before)).toHaveLength(0);
-    expect(memorySeat(ctx, id).cites).toEqual([1]);
+    expect(memorySeat(ctx, id).cites).toEqual(["P1"]);
   });
 
   it("(b) Justice Memory's card shows the cited case number and title", async () => {
@@ -118,7 +118,7 @@ describe("precedent relevance (Justice Memory)", () => {
     const view = await (await app.request(`/api/cases/${number}`, { headers: { cookie } })).json();
     const memory = view.ruling.seats.find((s: any) => s.key === "justice_memory");
     expect(memory.status).toBe("voted");
-    expect(memory.cites).toEqual([{ number: 1, label: "Case #0001", title: "The Great Hot Dog Debate" }]);
+    expect(memory.cites).toEqual([{ ref: "P1", number: 1, label: "Case #0001", title: "The Great Hot Dog Debate", landmark: false }]);
   });
 });
 

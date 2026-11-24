@@ -191,7 +191,7 @@ export interface ScoreAnswer {
 }
 
 export type Seat =
-  | { key: JusticeKey; status: "voted"; choice: Side; probabilities: Record<Side, number>; confidence: number; cites?: number[] }
+  | { key: JusticeKey; status: "voted"; choice: Side; probabilities: Record<Side, number>; confidence: number; cites?: (string | number)[] }
   | { key: JusticeKey; status: "recused"; reason: string };
 
 export interface Decision {

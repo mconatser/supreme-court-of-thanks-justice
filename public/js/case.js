@@ -5,7 +5,7 @@
   const thinking = document.getElementById("thinking");
   const note = document.getElementById("stream-note");
   const cardSlot = document.getElementById("card-slot");
-  const ICONS = { clerk: "📜", bailiff: "👮", judge: "👩‍⚖️", court: "🏛️" };
+  const ICONS = { clerk: "📜", bailiff: "👮", judge: "👩‍⚖️", court: "🏛️", executive: "👑" };
   const SEAT_ICONS = { justice_letter: "📖", justice_heart: "❤️", justice_memory: "🧠" };
   let lastId = 0;
   let es = null;
@@ -77,7 +77,7 @@
           )
         : null,
       r.sentence ? el("div", { class: "rc-sentence" }, `Sentence: ${r.sentence.text}`) : null,
-      r.petitionRecommended ? el("div", { class: "rc-recommend" }, "Recommended to the Executive Branch (a parent) for approval.") : null,
+      r.petitionRecommended ? approvalBlock(c) : null,
       r.citedArticles && r.citedArticles.length
         ? el("div", { class: "rc-articles" }, "Cites ", r.citedArticles.map((a) => `Article ${a.number}${a.title ? ` (${a.title})` : ""}`).join(", "))
         : null,
@@ -88,6 +88,32 @@
       document.getElementById("opinion-card").hidden = false;
       document.getElementById("opinion").innerHTML = renderMarkdown(r.opinionMd);
     }
+  }
+
+  function approvalBlock(c) {
+    if (c.approval === "approved") return el("div", { class: "rc-recommend" }, "👑 Approved by the Executive Branch. It's official!");
+    if (c.approval === "denied") return el("div", { class: "rc-recommend" }, "👑 The Executive Branch said no. The house rule stays the same.");
+    const box = el("div", { class: "rc-recommend" }, "Recommended to the Executive Branch (a parent) for approval.");
+    if (c.viewer && c.viewer.isParent) {
+      const err = el("div", { class: "error small" });
+      const decide = (decision) => async () => {
+        try {
+          await api(`/cases/${n}/approval`, { json: { decision } });
+          await refresh();
+        } catch (e) {
+          err.textContent = e.message;
+        }
+      };
+      box.append(
+        el("div", { class: "row2", style: "margin-top:10px" },
+          el("button", { class: "btn", type: "button", onclick: decide("approve") }, "👍 Approve"),
+          el("button", { class: "btn secondary", type: "button", onclick: decide("deny") }, "👎 Deny")),
+        err,
+      );
+    } else {
+      box.append(el("div", { class: "small muted" }, "Waiting for a parent's OK."));
+    }
+    return box;
   }
 
   function addEvent(e) {

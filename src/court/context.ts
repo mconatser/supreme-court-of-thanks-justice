@@ -10,6 +10,7 @@ import { createOllama, type Ollama } from "../shared/ollama.ts";
 import type { Person } from "../shared/people.ts";
 import { linkParties, openDb, type DB, type EventRow } from "./db.ts";
 import { FamilyCodeSource } from "./familyCode.ts";
+import { LandmarkSource } from "./landmarks.ts";
 import { Hearings } from "./hearing.ts";
 
 export interface CourtContext {
@@ -24,6 +25,7 @@ export interface CourtContext {
   /** Emits "event" with each new EventRow. */
   bus: EventEmitter<{ event: [EventRow] }>;
   familyCode: FamilyCodeSource;
+  landmarks: LandmarkSource;
   persona: () => string;
   hearings: Hearings;
   bootedAt: number;
@@ -38,6 +40,8 @@ export interface ContextOverrides {
   ollama?: Ollama;
   now?: () => Date;
   log?: (msg: string) => void;
+  /** Defaults to <CONTENT_DIR>/landmark-cases.md. */
+  landmarksPath?: string;
 }
 
 export function createCourtContext(cfg: Config, people: Person[], o: ContextOverrides = {}): CourtContext {
@@ -83,6 +87,7 @@ export function createCourtContext(cfg: Config, people: Person[], o: ContextOver
     budget,
     bus,
     familyCode: new FamilyCodeSource(join(cfg.CONTENT_DIR, "family-code.md")),
+    landmarks: new LandmarkSource(o.landmarksPath ?? join(cfg.CONTENT_DIR, "landmark-cases.md")),
     persona: () => {
       try {
         return readFileSync(personaPath, "utf8");

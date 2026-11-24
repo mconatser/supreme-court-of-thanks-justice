@@ -103,6 +103,8 @@ function migrate(db: DB) {
   addColumn("cases", "plaintiff_id", "TEXT");
   addColumn("cases", "defendant_id", "TEXT");
   addColumn("filings", "author_id", "TEXT");
+  // Granted petitions need a parent's OK: NULL (not needed) | pending | approved | denied
+  addColumn("cases", "approval", "TEXT");
 }
 
 /**
@@ -154,6 +156,7 @@ export interface CaseRow {
   ruled_at: number | null;
   plaintiff_id: string | null;
   defendant_id: string | null;
+  approval: "pending" | "approved" | "denied" | null;
 }
 
 export interface FilingRow {

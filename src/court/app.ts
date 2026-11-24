@@ -18,6 +18,7 @@ import type { CourtContext } from "./context.ts";
 import { linkParties, FINAL_STATUSES, OPEN_STATUSES, type EventRow } from "./db.ts";
 import { labelsFor } from "./labels.ts";
 import { loadPeople, PeopleError } from "../shared/people.ts";
+import { ApprovalError } from "./hearing.ts";
 import { findPrecedent } from "./precedent.ts";
 import { caseView, docketView, publicEvent } from "./views.ts";
 
@@ -99,10 +100,24 @@ export function createCourtApp(ctx: CourtContext, opts: CourtAppOptions = {}) {
 
   app.get("/api/docket", court, async (c) => c.json(docketView(ctx, await getRoles(c, cfg))));
 
-  app.get("/api/cases/:n{[0-9]+}", court, (c) => {
+  app.get("/api/cases/:n{[0-9]+}", court, async (c) => {
     const k = ctx.hearings.getCaseByNumber(Number(c.req.param("n")));
     if (!k) return c.json({ error: "The court can't find that case." }, 404);
-    return c.json(caseView(k, ctx));
+    return c.json(caseView(k, ctx, await getRoles(c, cfg)));
+  });
+
+  app.post("/cases/:n{[0-9]+}/approval", parent, async (c) => {
+    const k = ctx.hearings.getCaseByNumber(Number(c.req.param("n")));
+    if (!k) return c.json({ error: "The court can't find that case." }, 404);
+    const decision = ((await c.req.json().catch(() => ({}))) as { decision?: string }).decision;
+    if (decision !== "approve" && decision !== "deny") return c.json({ error: "Choose approve or deny." }, 400);
+    try {
+      ctx.hearings.decidePetition(k.id, decision);
+    } catch (err) {
+      if (err instanceof ApprovalError) return c.json({ error: err.message }, 409);
+      throw err;
+    }
+    return c.json(caseView(ctx.hearings.getCase(k.id)!, ctx, await getRoles(c, cfg)));
   });
 
   app.post("/file", court, async (c) => {

@@ -32,6 +32,7 @@ import type { CourtContext } from "./context.ts";
 import { FINAL_STATUSES, OPEN_STATUSES, type CaseRow, type CaseStatus, type EventRow, type FilingRow } from "./db.ts";
 import type { FamilyCode } from "./familyCode.ts";
 import { writeOpinion, type OpinionFacts } from "./opinion.ts";
+import { landmarkAsPrecedent } from "./landmarks.ts";
 import { caseLabel, findPrecedent } from "./precedent.ts";
 
 export interface FileInput {
@@ -66,7 +67,7 @@ export interface DeliberationData {
 
 export interface PrecedentCheck {
   /** Keyword matches, each with Jev's P(relevant). */
-  candidates: { number: number; title: string; p: number }[];
+  candidates: { ref: string; number?: number; title: string; p: number }[];
   /** Only candidates with P(relevant) >= 0.7 reach Justice Memory. */
   kept: Precedent[];
 }
@@ -81,7 +82,9 @@ export interface RulingData {
   confidencePct: number | null;
 }
 
-type Actor = "clerk" | "bailiff" | "judge" | "court";
+type Actor = "clerk" | "bailiff" | "judge" | "court" | "executive";
+
+export class ApprovalError extends Error {}
 
 export const justiceName = (ctx: Pick<CourtContext, "cast">, key: JusticeKey) =>
   ({ justice_letter: ctx.cast.justices.letter, justice_heart: ctx.cast.justices.heart, justice_memory: ctx.cast.justices.memory })[key];
@@ -162,6 +165,25 @@ export class Hearings {
     const { id, number, title } = tx();
     this.emit(id, "clerk", "case.filed", `${caseLabel(number)} is on the docket: ${title}.`);
     return { id, number };
+  }
+
+  // ---------- petitions ----------
+
+  /** The Executive Branch (a parent) approves or denies a granted petition. */
+  decidePetition(caseId: number, decision: "approve" | "deny"): void {
+    const c = this.getCase(caseId);
+    if (!c || c.approval !== "pending") throw new ApprovalError("This case isn't waiting for a parent's OK.");
+    const approval = decision === "approve" ? "approved" : "denied";
+    this.ctx.db.prepare("UPDATE cases SET approval = ? WHERE id = ? AND approval = 'pending'").run(approval, caseId);
+    this.emit(
+      caseId,
+      "executive",
+      `petition.${approval}`,
+      approval === "approved"
+        ? "The Executive Branch approves the petition. It's official!"
+        : "The Executive Branch says no to this one. The court's ruling stands, but the house rule stays the same.",
+      { approval },
+    );
   }
 
   // ---------- running ----------
@@ -330,10 +352,12 @@ export class Hearings {
   private async checkPrecedent(c: CaseRow): Promise<PrecedentCheck> {
     const existing = this.data<PrecedentCheck>(c.id, "precedent.checked");
     if (existing) return existing;
-    const candidates = findPrecedent(this.ctx.db, `${c.title} ${c.claim} ${c.relief}`, {
+    const keywordMatches = findPrecedent(this.ctx.db, `${c.title} ${c.claim} ${c.relief}`, {
       excludeCaseId: c.id,
       ignore: [c.plaintiff, c.defendant, ...this.ctx.people.map((p) => p.alias)],
     });
+    // Landmarks are few, so every one goes to the relevance check alongside the keyword matches.
+    const candidates = [...this.ctx.landmarks.load().landmarks.map(landmarkAsPrecedent), ...keywordMatches];
     let check: PrecedentCheck = { candidates: [], kept: [] };
     if (candidates.length) {
       const questions: Record<string, ReturnType<typeof precedentRelevanceQuestion>> = {};
@@ -349,8 +373,13 @@ export class Hearings {
       const answers = res.answers as Record<string, { noul: number }>;
       const scored = candidates.map((p) => ({ p, relevance: Number(answers[`relevant_${p.ref}`]?.noul ?? 0) }));
       check = {
-        candidates: scored.map(({ p, relevance }) => ({ number: p.number!, title: p.title!, p: relevance })),
-        kept: scored.filter((x) => x.relevance >= THRESHOLDS.yes).map((x) => x.p),
+        candidates: scored.map(({ p, relevance }) => ({ ref: p.ref!, number: p.number, title: p.title ?? "", p: relevance })),
+        // Most relevant first; the state carries at most 8 precedents.
+        kept: scored
+          .filter((x) => x.relevance >= THRESHOLDS.yes)
+          .sort((a, b) => b.relevance - a.relevance)
+          .slice(0, 8)
+          .map((x) => x.p),
       };
     }
     const n = check.candidates.length;
@@ -405,7 +434,7 @@ export class Hearings {
       memoryRecusal: delib.memoryRecusal,
     });
     for (const seat of decision.seats) {
-      if (seat.key === "justice_memory" && seat.status === "voted") seat.cites = delib.precedent.map((p) => p.number!).filter(Boolean);
+      if (seat.key === "justice_memory" && seat.status === "voted") seat.cites = delib.precedent.map((p) => p.ref ?? `P${p.number}`);
     }
     const winner = decision.outcome ? (decision.outcome === "plaintiff" ? c.plaintiff : c.defendant) : null;
     const sentenceText = decision.sentenceLevel !== null ? code.sentencing[decision.sentenceLevel] : null;
@@ -482,6 +511,9 @@ export class Hearings {
     // 9. Gavel
     const final: CaseStatus = ruling.kind === "contempt" ? "contempt" : ruling.kind === "too_close" ? "too_close" : "ruled";
     this.ctx.db.prepare("UPDATE cases SET status = ?, ruled_at = ? WHERE id = ?").run(final, Date.now(), id);
+    // A granted petition is only a recommendation until a parent approves it.
+    const granted = ruling.kind === "ruled" && ruling.decision?.outcome === "plaintiff" && this.getCase(id)!.type === "petition";
+    if (granted) this.ctx.db.prepare("UPDATE cases SET approval = 'pending' WHERE id = ? AND approval IS NULL").run(id);
     if (!this.lastEvent(id, "case.closed")) {
       this.emit(id, "bailiff", "case.closed", "BANG! Court is adjourned.", { status: final });
     }
