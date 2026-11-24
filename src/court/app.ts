@@ -19,7 +19,7 @@ import { linkParties, FINAL_STATUSES, OPEN_STATUSES, type EventRow } from "./db.
 import { labelsFor } from "./labels.ts";
 import { loadPeople, PeopleError, publicParty } from "../shared/people.ts";
 import { landmarkAsPrecedent } from "./landmarks.ts";
-import { AppealError, ApprovalError, SummonsError } from "./hearing.ts";
+import { AppealError, ApprovalError, RemarkError, SummonsError } from "./hearing.ts";
 import { MistrialError } from "./mistrial.ts";
 import { caseLabel } from "./precedent.ts";
 import { findPrecedent } from "./precedent.ts";
@@ -343,6 +343,20 @@ export function createCourtApp(ctx: CourtContext, opts: CourtAppOptions = {}) {
       ],
     }),
   );
+
+  /** Counsel's one-line interjection in the transcript (never seen by the judge's model). */
+  app.post("/api/cases/:n{[0-9]+}/remarks", requireCourtToken(cfg), async (c) => {
+    const k = ctx.hearings.getCaseByNumber(Number(c.req.param("n")));
+    if (!k) return c.json({ error: "The court can't find that case." }, 404);
+    const body = (await c.req.json().catch(() => ({}))) as { text?: unknown };
+    try {
+      ctx.hearings.addRemark(k.id, String(body.text ?? ""));
+    } catch (err) {
+      if (err instanceof RemarkError) return c.json({ error: err.message }, 409);
+      throw err;
+    }
+    return c.json({ ok: true }, 201);
+  });
 
   /** Who can be a party: aliases and roles only. */
   app.get("/api/parties", requireCourtToken(cfg), (c) => c.json({ parties: ctx.people.map(publicParty) }));

@@ -30,8 +30,8 @@ The last cookie must be offered to everyone at the table before anyone eats it.
 
 ## Sentencing Guidelines
 <!-- Exactly 5 levels, lightest first. A parent must approve these. -->
-0. (lightest, e.g. "Case closed with a warning")
-1. (…)
-2. (…)
-3. (…)
-4. (heaviest, still fair!)
+0. Hug Mom
+1. Hug Dad
+2. Sing a song
+3. Hug Grandpa and Grandma
+4. No dessert

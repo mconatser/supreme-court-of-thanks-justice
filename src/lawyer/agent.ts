@@ -9,6 +9,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { EventEmitter } from "node:events";
+import { loadCast } from "../shared/cast.ts";
 import type { Config } from "../shared/config.ts";
 import type { Jev } from "../shared/jev.ts";
 import type { ChatMessage, Ollama } from "../shared/ollama.ts";
@@ -195,11 +196,16 @@ export class Lawyer {
     await this.loop(ref);
   }
 
-  private systemPrompt(parties: string[]): string {
-    let persona = "You are a friendly, clever lawyer for a kid in a family court.";
+  private persona(): string {
     try {
-      persona = readFileSync(join(this.ctx.cfg.CONTENT_DIR, "lawyer-persona.md"), "utf8");
-    } catch {}
+      return readFileSync(join(this.ctx.cfg.CONTENT_DIR, "lawyer-persona.md"), "utf8");
+    } catch {
+      return "You are a friendly, clever lawyer for a kid in a family court.";
+    }
+  }
+
+  private systemPrompt(parties: string[]): string {
+    const persona = this.persona();
     const lessons = recentLessons(this.ctx.db);
     return [
       persona.trim(),
@@ -224,6 +230,7 @@ export class Lawyer {
       court: this.ctx.court,
       client: this.client!,
       onNote: (n: string) => this.note(ref, "watch_hearing", n),
+      persona: () => this.persona(),
     };
 
     let toolCalls = 0;
@@ -277,6 +284,7 @@ export class Lawyer {
     const brier = brierScore(cases);
     return {
       client: this.client ?? null,
+      lawyer: loadCast(this.ctx.cfg.CONTENT_DIR).lawyer,
       // Where case pages live (the court may be on another Sprite).
       courtUrl: /^https?:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/.test(this.ctx.cfg.COURT_URL) ? "" : this.ctx.cfg.COURT_URL.replace(/\/+$/, ""),
       matter: ref,

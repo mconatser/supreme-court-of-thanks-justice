@@ -147,6 +147,13 @@ describe("a full case: interview → mock trial → Yes → file → watch → l
     expect(view.cases[0].predictedPct).toBe(view.mock.drafts[0].winPct);
     expect(view.cases[0].outcome).toMatch(/won|lost|compromise/);
     expect(view.lessons).toEqual(["Justice Heart cares about who did the work."]);
+
+    // Counsel muttered one line into the court's transcript while the justices conferred…
+    const remarks = s.court.db.prepare("SELECT actor, message FROM events WHERE kind = 'counsel.remark'").all() as { actor: string; message: string }[];
+    expect(remarks).toEqual([{ actor: "counsel", message: `${s.court.cast.lawyer}: “He has a good point, boss!”` }]);
+    // …and it never reached the judge's model.
+    const { stubCalls } = await import("../src/shared/stub.ts");
+    expect(stubCalls.filter((c) => c.provider === "typesafe").some((c) => JSON.stringify(c.body).includes("good point"))).toBe(false);
     expect(view.accuracy?.finished).toBe(1);
   });
 });
@@ -339,5 +346,25 @@ describe("MODE=lawyer (the two-Sprite split)", () => {
     expect(s.lawyer.view(s.lawyer.currentMatter()).courtUrl).toBe("https://fc-court-example.sprites.app");
     const local = setup([], { COURT_URL: "http://localhost:8080" });
     expect(local.lawyer.view(local.lawyer.currentMatter()).courtUrl).toBe("");
+  });
+});
+
+describe("counsel's remarks in the transcript", () => {
+  it("only on cases counsel filed, at most 2, one line of 140 characters", async () => {
+    const s = setup([]);
+    const token = { "content-type": "application/json", "x-court-token": TEST_ENV.COURT_TOKEN };
+    const remark = (n: number, text: string) => s.courtApp.request(`/api/cases/${n}/remarks`, { method: "POST", headers: token, body: JSON.stringify({ text }) });
+
+    const proSe = s.court.hearings.file({ plaintiff: "Pip", defendant: "Sky Sister", claim: "She took my seat.", relief: "My seat back.", filedBy: "pro_se" });
+    expect((await remark(proSe.number, "He has a good point!")).status).toBe(409);
+
+    const byCounsel = s.court.hearings.file({ plaintiff: "Pip", defendant: "Sky Sister", claim: "She took my seat.", relief: "My seat back.", filedBy: "lawyer" });
+    expect((await remark(byCounsel.number, "  He has\n a good point!  ")).status).toBe(201);
+    expect((await remark(byCounsel.number, "x".repeat(500))).status).toBe(201);
+    expect((await remark(byCounsel.number, "One more thing!")).status).toBe(409);
+    const msgs = (s.court.db.prepare("SELECT data_json FROM events WHERE kind = 'counsel.remark' ORDER BY id").all() as { data_json: string }[]).map((r) => JSON.parse(r.data_json).text);
+    expect(msgs[0]).toBe("He has a good point!");
+    expect(msgs[1]).toHaveLength(140);
+    expect((await s.courtApp.request(`/api/cases/${byCounsel.number}/remarks`, { method: "POST", body: "{}" })).status).toBe(401);
   });
 });

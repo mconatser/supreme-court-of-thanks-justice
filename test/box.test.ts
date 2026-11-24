@@ -113,10 +113,10 @@ describe("court records in Box", () => {
     const files = stubBox.inFolder("rec");
     expect(files.map((f) => f.name)).toEqual(["Case-0001.md"]);
     const md = stubBox.latest(files[0].id)!;
-    expect(md).toContain("# Family Court: Case #0001");
+    expect(md).toContain(`# ${ctx.cast.court}: Case #0001`);
     expect(md).toContain("Pip v. Sky Sister");
     expect(md).toContain("### The panel");
-    expect(md).toContain("Justice Memory:** recused: no precedent yet");
+    expect(md).toContain(`${ctx.cast.justices.memory}:** recused: no precedent yet`);
     expect(md).toContain("### Opinion of the Court");
     const upload = stubCalls.filter((c) => c.provider === "box" && c.path === "/upload/files/content").at(-1)!;
     expect(Object.keys(upload.form!)[0]).toBe("attributes");

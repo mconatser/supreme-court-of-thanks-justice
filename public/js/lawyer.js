@@ -18,7 +18,7 @@
 
   function render() {
     const s = state;
-    $("title").textContent = s.client ? `Counsel for ${s.client}` : "Counsel's Office";
+    $("title").textContent = s.client ? `${s.lawyer && s.lawyer !== "Counsel" ? `${s.lawyer}, counsel` : "Counsel"} for ${s.client}` : "Counsel's Office";
 
     const msgs = $("messages");
     const atBottom = msgs.scrollHeight - msgs.scrollTop - msgs.clientHeight < 40;

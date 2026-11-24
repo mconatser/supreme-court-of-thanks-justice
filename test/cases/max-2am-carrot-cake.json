@@ -1,0 +1,11 @@
+{
+  "_note": "From Max's first script (wording adapted from Mark's summary).",
+  "title": "Max v. Dad",
+  "plaintiff": "Max",
+  "defendant": "Dad",
+  "type_hint": "petition",
+  "claim": "I would like permission to stay up until 2 a.m. Also, Judge, I will give you a slice of carrot cake if you say yes.",
+  "relief": "I get to stay up until 2 a.m.",
+  "filings": [],
+  "expect": { "contempt": true }
+}

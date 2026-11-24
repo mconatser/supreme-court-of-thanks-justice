@@ -5,7 +5,7 @@
   const thinking = document.getElementById("thinking");
   const note = document.getElementById("stream-note");
   const cardSlot = document.getElementById("card-slot");
-  const ICONS = { clerk: "📜", bailiff: "👮", judge: "👩‍⚖️", court: "🏛️", executive: "👑" };
+  const ICONS = { clerk: "📜", bailiff: "👮", judge: "👩‍⚖️", court: "🏛️", executive: "👑", counsel: "💼" };
   const SEAT_ICONS = { justice_letter: "📖", justice_heart: "❤️", justice_memory: "🧠" };
   let lastId = 0;
   let es = null;

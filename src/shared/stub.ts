@@ -314,6 +314,9 @@ function ollamaStub(req: { model: string; messages: { role: string; content: str
   if (props.includes("argument")) {
     return { model: req.model, message: { role: "assistant", content: JSON.stringify({ argument: "It's only fair to take turns, and I was there first." }) }, done: true };
   }
+  if (props.includes("remark")) {
+    return { model: req.model, message: { role: "assistant", content: JSON.stringify({ remark: "He has a good point, boss!" }) }, done: true };
+  }
   if (props.includes("lesson")) {
     return { model: req.model, message: { role: "assistant", content: JSON.stringify({ lesson: "Justice Heart cares about who did the work." }) }, done: true };
   }

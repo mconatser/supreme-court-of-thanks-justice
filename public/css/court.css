@@ -126,6 +126,7 @@ input:focus, select:focus, textarea:focus { outline: 3px solid color-mix(in srgb
 .transcript .kind-contempt\.found .msg, .transcript .kind-contempt\.warning .msg { color: var(--bad); font-weight: 650; }
 .transcript .kind-court\.recess .msg, .transcript .kind-court\.trouble .msg { color: var(--warn); font-weight: 650; }
 .transcript .kind-case\.closed .msg { font-weight: 800; letter-spacing: 0.02em; }
+.transcript .kind-counsel\.remark .msg { font-style: italic; color: var(--muted); }
 .thinking { color: var(--muted); font-style: italic; padding: 10px 0 0 2.7rem; }
 .thinking::after { content: "…"; animation: dots 1.2s steps(4) infinite; display: inline-block; width: 1.2em; overflow: hidden; vertical-align: bottom; }
 @keyframes dots { from { width: 0; } to { width: 1.2em; } }

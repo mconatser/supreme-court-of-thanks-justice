@@ -114,10 +114,13 @@ export interface RulingData {
   confidencePct: number | null;
 }
 
-type Actor = "clerk" | "bailiff" | "judge" | "court" | "executive";
+type Actor = "clerk" | "bailiff" | "judge" | "court" | "executive" | "counsel";
 
 export class ApprovalError extends Error {}
 export class AppealError extends Error {}
+export class RemarkError extends Error {}
+export const MAX_REMARKS = 2;
+export const MAX_REMARK_CHARS = 140;
 
 /** An appeal is heard only if it adds something new (SPEC §8.7). */
 export const APPEAL_NEW_EVIDENCE = 0.5;
@@ -416,6 +419,24 @@ export class Hearings {
     this.emit(c.id, "court", "case.vacated", "Mistrial! These proceedings never happened. (The Box record remembers.)");
     this.emit(c.id, "bailiff", "case.closed", "The case is closed. It never happened.", { status: "vacated" });
     return true;
+  }
+
+  // ---------- counsel's remarks ----------
+
+  /**
+   * Counsel may mutter a line into the transcript while watching its own client's hearing ("he has
+   * a good point"). Remarks are events, never filings: they are never sent to Jev, so they can't
+   * sway the ruling. At most 2 per case, one line each.
+   */
+  addRemark(caseId: number, text: string): void {
+    const c = this.getCase(caseId);
+    if (!c) throw new RemarkError("The court can't find that case.");
+    if (c.filed_by !== "lawyer") throw new RemarkError("Counsel can only speak up in cases counsel filed.");
+    const line = text.replace(/\s+/g, " ").trim().slice(0, MAX_REMARK_CHARS);
+    if (!line) throw new RemarkError("Counsel didn't say anything.");
+    const n = (this.ctx.db.prepare("SELECT COUNT(*) AS n FROM events WHERE case_id = ? AND kind = 'counsel.remark'").get(caseId) as { n: number }).n;
+    if (n >= MAX_REMARKS) throw new RemarkError("Counsel has said enough for this case.");
+    this.emit(caseId, "counsel", "counsel.remark", `${this.ctx.cast.lawyer}: “${line}”`, { text: line });
   }
 
   // ---------- petitions ----------

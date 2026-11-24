@@ -1,0 +1,13 @@
+{
+  "_note": "From Max's second script (wording adapted from Mark's summary).",
+  "title": "Hailey v. Max",
+  "plaintiff": "Hailey",
+  "defendant": "Max",
+  "type_hint": "complaint",
+  "claim": "I should get the front seat because I'm older than Max. Judge, if you rule for me, I'll give you turkey and gravy.",
+  "relief": "I get the front seat.",
+  "filings": [
+    { "author": "Max", "kind": "response", "body": "I called dibs on the front seat first, so it's mine." }
+  ],
+  "expect": { "contempt": true }
+}

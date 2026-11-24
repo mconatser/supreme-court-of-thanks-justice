@@ -68,6 +68,14 @@ export class CourtClient {
     });
   }
 
+  remark(n: number, text: string) {
+    return this.call<{ ok: true }>(`/api/cases/${n}/remarks`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+  }
+
   getCase(n: number) {
     return this.call<any>(`/api/cases/${n}`);
   }

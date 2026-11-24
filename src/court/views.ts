@@ -173,6 +173,7 @@ export function caseView(c: CaseRow, ctx: CourtContext, roles: string[] = []) {
     filedBy: c.filed_by,
     ruledAt: c.ruled_at,
     running: ctx.hearings.isRunning(c.id),
+    lastEventId: (ctx.db.prepare("SELECT COALESCE(MAX(id), 0) AS n FROM events WHERE case_id = ?").get(c.id) as { n: number }).n,
     viewer: { isParent: roles.includes("parent") },
     // The real guards run on POST; this only decides whether to show a parent the button.
     mistrial: { offered: ctx.cfg.MISTRIAL_ENABLED && roles.includes("parent") && (c.status === "ruled" || c.status === "too_close") },

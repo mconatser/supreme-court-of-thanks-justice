@@ -50,6 +50,8 @@ export interface ToolDeps {
   client: string;
   /** Live notes while a long tool runs (watch_hearing). */
   onNote: (note: string) => void;
+  /** The lawyer persona (content/lawyer-persona.md), for counsel's own voice. */
+  persona?: () => string;
 }
 
 const fn = (name: string, description: string, properties: Record<string, unknown>, required: string[] = []) => ({
@@ -183,12 +185,29 @@ export async function runTool(name: string, args: Record<string, unknown>, state
         const before = await deps.court.getCase(n);
         // Paused means a summons is still unanswered (answering one is instant; the status catches up).
         let paused = !before.final && (before.summons ?? []).some((s: { status: string }) => s.status === "pending");
-        const started = Date.now() - 1000;
+        // Events up to here are history (the stream replays them first).
+        const seen = Number(before.lastEventId ?? 0);
+        // While the justices confer, counsel may mutter one line into the transcript (it never
+        // reaches the judge's model). Only for new events, so a replay doesn't trigger it.
+        let remark: Promise<unknown> | null = null;
+        const onEvent = (e: { id: number; kind: string; message: string }) => {
+          deps.onNote(`Court: ${e.message}`);
+          if (!remark && /deliberation\.started$/.test(e.kind) && e.id > seen) {
+            remark = interject(deps, view0Title(before), e.message)
+              .then(async (line) => {
+                if (!line) return;
+                await deps.court.remark(n, line);
+                deps.onNote(`Counsel, under their breath: “${line}”`);
+              })
+              .catch(() => {});
+          }
+        };
         const how = paused
           ? "stopped"
-          : await deps.court.watch(n, (e) => deps.onNote(`Court: ${e.message}`), {
-              stopOn: (e) => (e.kind === "summons.issued" && e.ts >= started ? (paused = true) : false),
+          : await deps.court.watch(n, onEvent, {
+              stopOn: (e) => (e.kind === "summons.issued" && e.id > seen ? (paused = true) : false),
             });
+        if (remark) await remark;
         const view = await deps.court.getCase(n);
         if (!view.final) {
           const waiting = (view.summons ?? []).filter((s: { status: string }) => s.status === "pending").map((s: { party: string }) => s.party);
@@ -222,6 +241,25 @@ export async function runTool(name: string, args: Record<string, unknown>, state
   } catch (err) {
     return fail(`The ${name} tool hit a snag.`, (err as Error).message);
   }
+}
+
+const view0Title = (v: { title?: string; claim?: string }) => `${v.title ?? ""}: ${v.claim ?? ""}`;
+
+/** One short, PG line supporting the client, in the lawyer's own voice. Never addressed to the judge. */
+async function interject(deps: ToolDeps, caseLine: string, moment: string): Promise<string | null> {
+  const persona = deps.persona?.() ?? "";
+  const out = await deps.ollama.chatJson(z.object({ remark: z.string() }), {
+    think: false,
+    messages: [
+      {
+        role: "system",
+        content: `${persona}\n\nWrite ONE short line (at most 12 words) you'd mutter to your client, ${deps.client}, while the justices confer. Supportive and funny, PG. Don't talk to the judge, don't ask the court for anything, never mention gifts or food for the court. Reply only with JSON: {"remark": string}.`,
+      },
+      { role: "user", content: `Case: ${caseLine}\nWhat just happened: ${moment}` },
+    ],
+  });
+  const line = out.remark.replace(/\s+/g, " ").replace(/^["“]|["”]$/g, "").trim();
+  return line ? line.slice(0, 140) : null;
 }
 
 async function writeLesson(ollama: Ollama, o: { title: string; outcome: Outcome; predicted: number | null | undefined; seats: unknown; opinion?: string }) {

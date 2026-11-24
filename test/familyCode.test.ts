@@ -33,12 +33,19 @@ describe("parseFamilyCode", () => {
     expect(code.warnings).toEqual([]);
   });
 
-  it("falls back to default tiers, with polite warnings, for Max's still-blank template", () => {
+  it("reads the lawmaker's own sentencing guidelines, and warns politely while articles are still blank", () => {
     const code = parseFamilyCode(readFileSync("content/family-code.md", "utf8"));
+    expect(code.usingDefaultSentencing).toBe(false);
+    expect(code.sentencing).toHaveLength(5);
+    expect(code.sentencing.every((l) => l.trim().length > 0)).toBe(true);
+    expect(code.text).not.toContain("<!--"); // comments aren't sent to Jev
+  });
+
+  it("falls back to default tiers when the sentencing levels are still placeholders", () => {
+    const code = parseFamilyCode("## Article 1. Dibs\nOnly in the same room.\n\n## Sentencing Guidelines\n0. (lightest)\n1. (…)\n2. (…)\n3. (…)\n4. (heaviest)\n");
     expect(code.usingDefaultSentencing).toBe(true);
     expect(code.sentencing).toEqual(DEFAULT_SENTENCING);
-    expect(code.warnings.length).toBeGreaterThan(0);
-    expect(code.text).not.toContain("<!--"); // comments aren't sent to Jev
+    expect(code.warnings.join(" ")).toMatch(/built-in punishments/);
   });
 
   it("falls back when the sentencing section is missing or short", () => {
