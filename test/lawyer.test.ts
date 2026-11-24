@@ -420,3 +420,49 @@ describe("the lawyer knows who can be a party (fc-court: it once tried \"Family 
     expect(JSON.parse(second).drafts).toHaveLength(1);
   });
 });
+
+describe("a long shot gets said out loud before \"Ready to file?\"", () => {
+  // In stub mode a draft saying it "never happened" makes the justices lean to the other side.
+  const WEAK = "Okay, maybe the dibs never happened, but I still want the seat.";
+  const ask = (argument: string, question = "Want me to file it?") => ({
+    name: "ask_client",
+    args: { question, confirm_filing: { ...FACTS, argument } },
+  });
+  const mock = (drafts: string[]) => ({ name: "mock_trial", args: { ...FACTS, drafts, opposing_view: "x" } });
+  const pendingAfter = async (steps: Step[]) => {
+    const s = setup(steps);
+    const ref = s.lawyer.currentMatter();
+    await s.lawyer.handle(ref, { text: "Let's go!" });
+    return { s, view: s.lawyer.view(ref) };
+  };
+
+  it("under 50%: Greg's weak-case line comes first, once", async () => {
+    const { view } = await pendingAfter([{ tools: [mock([WEAK])] }, { tools: [ask(WEAK)] }]);
+    expect(view.mock.drafts[0].winPct).toBeLessThan(50);
+    expect(view.pending?.question).toBe("This one's a long shot, boss. Want me to file it?");
+    expect(view.messages.at(-1)!.content).toBe("This one's a long shot, boss. Want me to file it?");
+    expect(view.notes[0].note).toMatch(/a long shot: \d+%/);
+  });
+
+  it("50% or better: no long-shot line", async () => {
+    const { view } = await pendingAfter([{ tools: [mock([GOOD])] }, { tools: [ask(GOOD)] }]);
+    expect(view.mock.drafts[0].winPct).toBeGreaterThanOrEqual(50);
+    expect(view.pending?.question).toBe("Want me to file it?");
+  });
+
+  it("doesn't repeat the line if Greg already said it", async () => {
+    const { view } = await pendingAfter([{ tools: [mock([WEAK])] }, { tools: [ask(WEAK, "This one's a long shot, boss! Still want to file?")] }]);
+    expect(view.pending?.question).toBe("This one's a long shot, boss! Still want to file?");
+  });
+
+  it("uses the persona's own line (swappable), with a default", async () => {
+    const { weakCaseLine, bestWinPct } = await import("../src/lawyer/tools.ts");
+    expect(weakCaseLine(readFileSync("content/lawyer-persona.md", "utf8"))).toBe("This one's a long shot, boss.");
+    expect(weakCaseLine('**When the case is weak:** "Yikes, boss. Long odds."')).toBe("Yikes, boss. Long odds.");
+    expect(weakCaseLine("no line here")).toBe("This one's a long shot, boss.");
+    // The best draft never counts one the court would hold in contempt.
+    const d = (draft: number, winPct: number, band: string) => ({ draft, argument: "", winPct, justices: [], contempt: { p: 0, band } });
+    expect(bestWinPct({ mock: { opposingArgument: "", precedentUsed: [], drafts: [d(1, 90, "yes"), d(2, 30, "no")], best: 2 } })).toBe(30);
+    expect(bestWinPct({ mock: null })).toBeNull();
+  });
+});

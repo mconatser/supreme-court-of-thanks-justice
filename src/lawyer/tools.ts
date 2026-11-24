@@ -107,6 +107,23 @@ const FilingSchema = z.object({
   argument: z.string().trim().max(1500).default(""),
 });
 
+/** Below this, the best mock-trial draft is a long shot. */
+export const WEAK_CASE_PCT = 50;
+export const DEFAULT_WEAK_CASE_LINE = "This one's a long shot, boss.";
+
+/** The best non-contempt draft's predicted win %, or null before any mock trial. */
+export function bestWinPct(state: Pick<MatterState, "mock">): number | null {
+  const m = state.mock;
+  if (!m || m.best == null) return null;
+  return m.drafts.find((d) => d.draft === m.best)?.winPct ?? null;
+}
+
+/** The persona's "When the case is weak" line (content/lawyer-persona.md), so it stays swappable. */
+export function weakCaseLine(persona: string): string {
+  const m = persona.match(/\*\*When the case is weak:\*\*\s*"([^"\n]+)"/i);
+  return m?.[1]?.trim() || DEFAULT_WEAK_CASE_LINE;
+}
+
 const norm = (f: Filing) => JSON.stringify([f.defendant, f.title, f.claim, f.relief, f.argument].map((x) => x.trim().replace(/\s+/g, " ")));
 const fail = (note: string, error: string): ToolOutcome => ({ ok: false, note, result: { error } });
 
@@ -144,7 +161,16 @@ export async function runTool(name: string, args: Record<string, unknown>, state
         if (args.confirm_filing && typeof args.confirm_filing === "object") {
           const parsed = FilingSchema.safeParse(args.confirm_filing);
           if (!parsed.success) return fail("Tried to ask for permission to file, but the filing wasn't complete.", `confirm_filing is incomplete: ${parsed.error.issues[0]?.message}`);
-          return { ok: true, note: "Asking you: ready to file?", result: { asked: true }, pause: { question, kind: "confirm_filing", filing: parsed.data } };
+          // A long shot gets said out loud, in the lawyer's own words, before the recommendation.
+          const best = bestWinPct(state);
+          const line = best !== null && best < WEAK_CASE_PCT ? weakCaseLine(deps.persona?.() ?? "") : null;
+          const asked = line && !question.toLowerCase().includes(line.toLowerCase().replace(/[.!]+$/, "")) ? `${line} ${question}` : question;
+          return {
+            ok: true,
+            note: line ? `Asking you: ready to file? (a long shot: ${best}%)` : "Asking you: ready to file?",
+            result: { asked: true },
+            pause: { question: asked, kind: "confirm_filing", filing: parsed.data },
+          };
         }
         return { ok: true, note: `Asking you: “${question.slice(0, 80)}”`, result: { asked: true }, pause: { question, kind: "question" } };
       }
