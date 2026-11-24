@@ -16,21 +16,19 @@ How to write a landmark case:
 - A landmark whose title starts with "(Placeholder" is ignored by the court.
 -->
 
-<!-- The titles below are temporary until Max names them. -->
-
-## Landmark L1. The Shotgun Stretch: Max v. Hailey (2019)
+## Landmark L1. The Shotgun Stretch
 Question: Max called shotgun before everyone was outside. Did it count?
 Outcome: Yes. Max won, because shotgun still counts as long as at least one person is outside.
 Vote: 2–1
 Articles: 1
 
-## Landmark L2. The Holiday Bedtime Pardon: Mom v. Hailey (2020)
+## Landmark L2. The Holiday Bedtime Debate
 Question: Hailey stayed up past 10:30 on a school night. Was that allowed?
 Outcome: Yes. Hailey won, because the next day was a holiday.
 Vote: 3–0
 Articles: 2
 
-## Landmark L3. The Five More Minutes Ruling: Max v. Dad (2022)
+## Landmark L3. The Five More Minutes Case
 Question: Max wouldn't pass the controller after 30 minutes. Was that allowed?
 Outcome: Yes. Max won, because his game was almost over and only needed five more minutes.
 Vote: 2–1

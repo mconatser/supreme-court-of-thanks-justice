@@ -22,8 +22,9 @@ export interface OpinionFacts {
   contemnor?: string;
   vote?: string;
   confidencePct?: number;
-  justices: { name: string; vote: string }[];
+  justices: { name: string; vote: string; personality?: string }[];
   dissenter?: string;
+  dissenterPersonality?: string;
   sentence?: { level: number; text: string };
   inAbsentia?: string;
   articles: { number: number; title: string }[];
@@ -91,7 +92,11 @@ export function opinionUserPrompt(f: OpinionFacts): string {
   if (f.vote) lines.push(`Vote: ${f.vote}`);
   if (f.confidencePct !== undefined) lines.push(`Confidence: ${f.confidencePct}%`);
   if (f.justices.length) lines.push(`Justices: ${f.justices.map((j) => `${j.name}: ${j.vote}`).join("; ")}`);
-  if (f.dissenter) lines.push(`Dissent: written by ${f.dissenter}`);
+  const personalities = f.justices.filter((j) => j.personality);
+  if (personalities.length) {
+    lines.push(`When a justice speaks (like a dissent), use their personality: ${personalities.map((j) => `${j.name}: ${j.personality}`).join(" ")}`);
+  }
+  if (f.dissenter) lines.push(`Dissent: written by ${f.dissenter}${f.dissenterPersonality ? `, in their own voice (${f.dissenterPersonality})` : ""}`);
   if (f.sentence) lines.push(`Sentence (level ${f.sentence.level}): ${f.sentence.text}`);
   if (f.inAbsentia) lines.push(`Note: ${f.inAbsentia} was not heard; mention that the ruling was made in absentia.`);
   lines.push(

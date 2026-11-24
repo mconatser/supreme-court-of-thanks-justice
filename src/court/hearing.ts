@@ -139,6 +139,10 @@ export const APPEAL_NEW_EVIDENCE = 0.5;
 export const justiceName = (ctx: Pick<CourtContext, "cast">, key: JusticeKey) =>
   ({ justice_letter: ctx.cast.justices.letter, justice_heart: ctx.cast.justices.heart, justice_memory: ctx.cast.justices.memory })[key];
 
+/** A justice's personality (Max's words, content/judge-persona.md), or "" until written. */
+export const justicePersonality = (ctx: Pick<CourtContext, "cast">, key: JusticeKey) =>
+  ({ justice_letter: ctx.cast.personalities.letter, justice_heart: ctx.cast.personalities.heart, justice_memory: ctx.cast.personalities.memory })[key];
+
 export class Hearings {
   private running = new Map<number, Promise<void>>();
 
@@ -1116,6 +1120,7 @@ export class Hearings {
     const justices =
       d?.seats.map((s) => ({
         name: justiceName(this.ctx, s.key),
+        personality: justicePersonality(this.ctx, s.key) || undefined,
         vote: s.status === "voted" ? `${sideName(s.choice)} (${Math.round(s.probabilities[s.choice] * 100)}%)` : s.reason,
       })) ?? [];
     const dissent =
@@ -1137,6 +1142,7 @@ export class Hearings {
       confidencePct: r.confidencePct ?? undefined,
       justices,
       dissenter: dissent ? justiceName(this.ctx, dissent.key) : undefined,
+      dissenterPersonality: dissent ? justicePersonality(this.ctx, dissent.key) || undefined : undefined,
       sentence: r.sentenceLevel !== null && r.sentenceText ? { level: r.sentenceLevel, text: r.sentenceText } : undefined,
       inAbsentia: inAbsentia ?? undefined,
       articles: code.articles.map((a) => ({ number: a.number, title: a.title })),

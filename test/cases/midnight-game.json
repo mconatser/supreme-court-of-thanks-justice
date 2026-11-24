@@ -2,10 +2,10 @@
   "_note": "Drafted by Mark with Max (lines may change). Parties' lines become the claim and filings; the whole script is in _script. The relief line isn't in the script.",
   "_script": [
     "Mom: Max stayed up until midnight on a school night.",
-    "Max: I was finishing my homework!",
-    "Mom: You were playing video games."
+    "Max: I was finishing my game.",
+    "Mom: You were."
   ],
-  "title": "The Midnight Homework",
+  "title": "The Midnight Game",
   "plaintiff": "Mom",
   "defendant": "Max",
   "type_hint": "complaint",
@@ -15,12 +15,12 @@
     {
       "author": "Max",
       "kind": "response",
-      "body": "I was finishing my homework!"
+      "body": "I was finishing my game."
     },
     {
       "author": "Mom",
       "kind": "argument",
-      "body": "You were playing video games."
+      "body": "You were."
     }
   ],
   "expect": {

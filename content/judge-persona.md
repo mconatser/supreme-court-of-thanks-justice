@@ -29,8 +29,8 @@
 
 | Seat | Name | Personality |
 |---|---|---|
-| Rules as written | Justice Cody | |
-| What's fair | Justice Grace | |
-| What the court decided before | Justice Jack | |
+| Rules as written | Justice Cody | Super strict, and reads every rule out loud word by word. |
+| What's fair | Justice Grace | Kind, and always asks "Is this fair to everyone?" |
+| What the court decided before | Justice Jack | The oldest justice, who remembers every case ever. |
 
 **Rules the judge always follows:** kind, PG, funny, short. Never mean about anyone.

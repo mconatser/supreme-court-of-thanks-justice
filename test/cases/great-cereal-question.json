@@ -2,7 +2,9 @@
   "_note": "Drafted by Mark with Max (lines may change). Parties' lines become the claim and filings; the whole script is in _script. The relief line isn't in the script.",
   "_script": [
     "Max: Cereal is food floating in liquid in a bowl, so cereal is soup.",
-    "Gpa: Soup is hot, and nobody eats soup for breakfast."
+    "Gpa: Soup is hot, and nobody eats soup for breakfast.",
+    "Max: Not all soup is hot. There are dessert soups that are cold, so cereal is a dessert soup.",
+    "Gpa: If it's a soup, then why do they call it cereal?"
   ],
   "title": "The Great Cereal Question",
   "plaintiff": "Max",
@@ -15,6 +17,16 @@
       "author": "Gpa",
       "kind": "response",
       "body": "Soup is hot, and nobody eats soup for breakfast."
+    },
+    {
+      "author": "Max",
+      "kind": "argument",
+      "body": "Not all soup is hot. There are dessert soups that are cold, so cereal is a dessert soup."
+    },
+    {
+      "author": "Gpa",
+      "kind": "response",
+      "body": "If it's a soup, then why do they call it cereal?"
     }
   ],
   "expect": {

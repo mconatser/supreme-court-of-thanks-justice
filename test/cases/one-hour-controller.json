@@ -2,7 +2,8 @@
   "_note": "Drafted by Mark with Max (lines may change). Parties' lines become the claim and filings; the whole script is in _script. The relief line isn't in the script.",
   "_script": [
     "Max: Hailey played for a whole hour and wouldn't pass the controller.",
-    "Hailey: My game was almost over."
+    "Hailey: My game was almost over.",
+    "Max: That's what you said thirty minutes ago."
   ],
   "title": "The One-Hour Controller",
   "plaintiff": "Max",
@@ -15,6 +16,11 @@
       "author": "Hailey",
       "kind": "response",
       "body": "My game was almost over."
+    },
+    {
+      "author": "Max",
+      "kind": "argument",
+      "body": "That's what you said thirty minutes ago."
     }
   ],
   "expect": {

@@ -154,3 +154,24 @@ describe("guests and petition approval", () => {
     expect(ctx.hearings.getCase(id)!.approval).toBeNull();
   });
 });
+
+describe("justice personalities (content/judge-persona.md)", () => {
+  it("are read from Max's table and reach the opinion, dissent included", async () => {
+    const { loadCast, parsePersonalities } = await import("../src/shared/cast.ts");
+    const cast = loadCast("content");
+    expect(cast.personalities.letter).toMatch(/strict/i);
+    expect(cast.personalities.heart).toMatch(/fair to everyone/i);
+    expect(cast.personalities.memory).toMatch(/remembers every case/i);
+    expect(parsePersonalities("no table")).toEqual({ letter: "", heart: "", memory: "" });
+
+    const { opinionUserPrompt } = await import("../src/court/opinion.ts");
+    const prompt = opinionUserPrompt({
+      kind: "ruled", caseNumber: 1, title: "t", caseType: "complaint", plaintiff: "Max", defendant: "Hailey", claim: "c", relief: "r",
+      winner: "Max", loser: "Hailey", vote: "2–1", confidencePct: 70, articles: [], filings: [],
+      justices: [{ name: "Justice Cody", vote: "Max (80%)", personality: cast.personalities.letter }],
+      dissenter: "Justice Grace", dissenterPersonality: cast.personalities.heart,
+    });
+    expect(prompt).toContain(`When a justice speaks (like a dissent), use their personality: Justice Cody: ${cast.personalities.letter}`);
+    expect(prompt).toContain(`Dissent: written by Justice Grace, in their own voice (${cast.personalities.heart})`);
+  });
+});
