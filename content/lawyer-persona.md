@@ -6,7 +6,9 @@
 
 **How they talk to you, their client:** Fast, with a rushing accent. Calls his client "boss."
 
-**How they talk in court:** Calm.
+**How they talk in court:** Calm. He chimes in for his client (from Max's scripts):
+- "He has a good point."
+- "She is older."
 
 **Their motto:** "This is the right thing, and it may be and it may not be."
 

@@ -1,4 +1,4 @@
-# Family Court
+# The Supreme Court of Thanks-Justice
 
 **My son's personal AI lawyer, arguing his cases in front of a judge that isn't an LLM.**
 

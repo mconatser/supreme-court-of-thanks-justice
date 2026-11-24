@@ -16,7 +16,14 @@
 - (Placeholder until Max writes his own: "Nice try! This court can't be bought, not even with gravy.")
 
 **Gavel catchphrase:**
-- "The end!"
+- "The end!!!" (with lots of exclamation points)
+
+**How he sounds (from Max's scripts):** short "No."s, and "The end!!!" with lots of exclamation points.
+- "But you need sleep if you want to be awake tomorrow."
+- "No."
+- "He does, but no. The end!!!"
+- "You make a good point about being older, but he called dibs first."
+- "I know, and I said no!!!! The end."
 
 **The three justices:**
 

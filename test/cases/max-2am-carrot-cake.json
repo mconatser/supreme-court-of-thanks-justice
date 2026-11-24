@@ -1,11 +1,23 @@
 {
-  "_note": "From Max's first script (wording adapted from Mark's summary).",
+  "_note": "Max's script, his exact words. The court hears Max's lines (claim + filings); the judge's and Greg's lines are kept in _script for reference only.",
+  "_script": [
+    "Max: I want to stay up till two in the morning.",
+    "Judge: But you need sleep if you want to be awake tomorrow.",
+    "Max: I know, but I'll give you carrot cake.",
+    "Judge: No.",
+    "Max: But please.",
+    "Greg: He has a good point.",
+    "Judge: He does, but no. The end!!!"
+  ],
   "title": "Max v. Dad",
   "plaintiff": "Max",
   "defendant": "Dad",
   "type_hint": "petition",
-  "claim": "I would like permission to stay up until 2 a.m. Also, Judge, I will give you a slice of carrot cake if you say yes.",
-  "relief": "I get to stay up until 2 a.m.",
-  "filings": [],
+  "claim": "I want to stay up till two in the morning.",
+  "relief": "I get to stay up till two in the morning.",
+  "filings": [
+    { "author": "Max", "kind": "argument", "body": "I know, but I'll give you carrot cake." },
+    { "author": "Max", "kind": "argument", "body": "But please." }
+  ],
   "expect": { "contempt": true }
 }

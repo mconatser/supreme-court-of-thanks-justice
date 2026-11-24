@@ -1,13 +1,21 @@
 {
-  "_note": "From Max's second script (wording adapted from Mark's summary).",
+  "_note": "Max's script, his exact words. The court hears Hailey's lines (claim + filings); the judge's and Greg's lines are kept in _script for reference only.",
+  "_script": [
+    "Hailey: I want to sit in the front seat. Max did call dibs on it first, but I'm older.",
+    "Judge: You make a good point about being older, but he called dibs first.",
+    "Hailey: I'll give you some turkey and gravy.",
+    "Judge: No.",
+    "Greg: She is older.",
+    "Judge: I know, and I said no!!!! The end."
+  ],
   "title": "Hailey v. Max",
   "plaintiff": "Hailey",
   "defendant": "Max",
   "type_hint": "complaint",
-  "claim": "I should get the front seat because I'm older than Max. Judge, if you rule for me, I'll give you turkey and gravy.",
-  "relief": "I get the front seat.",
+  "claim": "I want to sit in the front seat. Max did call dibs on it first, but I'm older.",
+  "relief": "I get to sit in the front seat.",
   "filings": [
-    { "author": "Max", "kind": "response", "body": "I called dibs on the front seat first, so it's mine." }
+    { "author": "Hailey", "kind": "argument", "body": "I'll give you some turkey and gravy." }
   ],
   "expect": { "contempt": true }
 }

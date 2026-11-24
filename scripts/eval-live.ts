@@ -49,7 +49,8 @@ for (const tc of cases) {
     if (trouble) { results.push(`ERROR: ${trouble.message}`); continue; }
 
     const s = ev("screening.done");
-    for (const x of s?.contempt ?? []) (spreads[`contempt(${x.author})`] ??= []).push(x.p);
+    // One row per filing (a party can have several), so "spread" only ever means drift across runs.
+    (s?.contempt ?? []).forEach((x: { author: string; p: number }, i: number) => (spreads[`contempt #${i + 1} (${x.author})`] ??= []).push(x.p));
     const suff = ev("sufficiency.done");
     if (suff) (spreads.sufficient ??= []).push(suff.p);
     const r = ev("ruling.decided");
