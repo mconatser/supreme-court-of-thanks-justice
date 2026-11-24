@@ -35,6 +35,16 @@ export class BoxClient {
     return { id: d.id, name: d.name, versionId: d.file_version?.id ?? "", modifiedAt: d.modified_at ?? "" };
   }
 
+  /** The file with this exact name in a folder, if any. */
+  async findInFolder(folderId: string, name: string): Promise<string | null> {
+    const res = await this.ok(
+      await this.gateway.gw("box", `/2.0/folders/${encodeURIComponent(folderId)}/items?fields=name&limit=1000`, { signal: AbortSignal.timeout(20_000) }),
+      "folder listing",
+    );
+    const d = (await res.json()) as { entries?: { id: string; name: string; type?: string }[] };
+    return d.entries?.find((e) => e.name === name && (e.type ?? "file") === "file")?.id ?? null;
+  }
+
   async downloadText(fileId: string): Promise<string> {
     const res = await this.gateway.gw("box", `/2.0/files/${encodeURIComponent(fileId)}/content`, {
       redirect: "manual",

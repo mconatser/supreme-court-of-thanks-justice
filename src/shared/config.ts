@@ -44,6 +44,8 @@ export const ConfigSchema = z.object({
 
   SUMMONS_TIMEOUT_MIN: int(15),
   MISTRIAL_ENABLED: z.preprocess((v) => v === true || v === "true", z.boolean()).default(false),
+  SPRITE_ENV_BIN: str("sprite-env"),
+  MISTRIAL_RESTORE_DELAY_MS: int(1500),
 
   JEV_DAILY: int(300),
   OLLAMA_DAILY: int(150),

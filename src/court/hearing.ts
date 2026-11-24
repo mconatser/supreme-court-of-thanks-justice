@@ -40,6 +40,7 @@ import { landmarkAsPrecedent } from "./landmarks.ts";
 import { caseLabel, findPrecedent } from "./precedent.ts";
 import { recordName, renderRecord } from "./record.ts";
 import { caseView } from "./views.ts";
+import { CHECKPOINT_ID, MistrialError, VACATED_MARKER, vacatedBanner } from "./mistrial.ts";
 import { labelsFor } from "./labels.ts";
 
 export interface FileInput {
@@ -333,6 +334,90 @@ export class Hearings {
     this.emit(id, "bailiff", "appeal.closed", "BANG! The appeal is decided. Court is adjourned.", { status, result: decided?.result ?? "dismissed" });
   }
 
+  // ---------- mistrial (SPEC §8.8) ----------
+
+  private vacatedChecked = new Set<number>();
+
+  private async checkpointBeforeRuling(c: CaseRow) {
+    if (!this.ctx.cfg.MISTRIAL_ENABLED) return;
+    if (this.lastEvent(c.id, "checkpoint.created") || this.lastEvent(c.id, "checkpoint.failed")) return;
+    try {
+      const id = await this.ctx.spriteEnv.create(`pre-ruling ${caseLabel(c.number).replace("Case #", "case-")}`);
+      this.emit(c.id, "clerk", "checkpoint.created", `The clerk saves a copy of the whole courthouse, just in case. (Checkpoint ${id}.)`, { id, createdAt: Date.now() });
+    } catch (err) {
+      this.ctx.log(`[mistrial] checkpoint failed: ${(err as Error).message}`);
+      this.emit(c.id, "clerk", "checkpoint.failed", "The clerk couldn't save a copy of the courthouse, so this case can't have a mistrial.");
+    }
+  }
+
+  /** Why a mistrial can't be declared, or the checkpoint to restore. All four guards are required. */
+  async mistrialCheck(caseId: number): Promise<{ ok: true; checkpoint: string } | { ok: false; reason: string }> {
+    const cfg = this.ctx.cfg;
+    if (!cfg.MISTRIAL_ENABLED) return { ok: false, reason: "Mistrials are only allowed on the courthouse Sprite." };
+    if (!cfg.BOX_RECORDS_FOLDER_ID) return { ok: false, reason: "A mistrial needs the Box records folder, so the record can remember." };
+    const c = this.getCase(caseId);
+    if (!c || !["ruled", "too_close"].includes(c.status) || !c.ruled_at) return { ok: false, reason: "Only a decided case can be declared a mistrial." };
+    const latest = this.ctx.db
+      .prepare("SELECT id FROM cases WHERE status IN ('ruled','too_close','contempt') ORDER BY ruled_at DESC, id DESC LIMIT 1")
+      .get() as { id: number } | undefined;
+    const later = this.ctx.db.prepare("SELECT COUNT(*) AS n FROM cases WHERE id != ? AND (number > ? OR created_at > ?)").get(c.id, c.number, c.ruled_at) as { n: number };
+    const laterFilings = this.ctx.db.prepare("SELECT COUNT(*) AS n FROM filings WHERE case_id = ? AND created_at > ?").get(c.id, c.ruled_at) as { n: number };
+    if (latest?.id !== c.id || later.n > 0 || laterFilings.n > 0) return { ok: false, reason: "Later cases are on the docket, so time can't be rewound past them." };
+    const r = this.ctx.db.prepare("SELECT checkpoint_id FROM rulings WHERE case_id = ? AND round = 0").get(c.id) as { checkpoint_id: string | null } | undefined;
+    if (!r?.checkpoint_id || !CHECKPOINT_ID.test(r.checkpoint_id)) return { ok: false, reason: "There's no saved copy of the courthouse from before this ruling." };
+    const deployed = Number(this.ctx.deployId);
+    if (!this.ctx.deployId || !Number.isFinite(deployed)) return { ok: false, reason: "The deploy stamp (data/DEPLOY_ID) is missing, so rewinding could roll back the code." };
+    let found;
+    try {
+      found = (await this.ctx.spriteEnv.list()).find((x) => x.id === r.checkpoint_id);
+    } catch (err) {
+      return { ok: false, reason: `Couldn't list checkpoints: ${(err as Error).message}` };
+    }
+    if (!found) return { ok: false, reason: "That checkpoint is gone (only the last few are kept)." };
+    if (found.createdAt <= deployed * 1000) return { ok: false, reason: "That checkpoint is older than the current code. Restoring it would roll back a deploy." };
+    return { ok: true, checkpoint: found.id };
+  }
+
+  /** Stamp the Box record VACATED, then rewind the Sprite. Throws MistrialError if any guard fails. */
+  async declareMistrial(caseId: number): Promise<{ checkpoint: string; delayMs: number }> {
+    const check = await this.mistrialCheck(caseId);
+    if (!check.ok) throw new MistrialError(check.reason);
+    const c = this.getCase(caseId)!;
+    const name = recordName(c.number);
+    const md = vacatedBanner(caseLabel(c.number), new Date()) + renderRecord(caseView(c, this.ctx), this.ctx.cast.court);
+    const r = this.ctx.db.prepare("SELECT box_file_id FROM rulings WHERE case_id = ? AND round = 0").get(caseId) as { box_file_id: string | null };
+    try {
+      if (r.box_file_id) await this.ctx.box.uploadVersion(r.box_file_id, name, md);
+      else await this.ctx.box.upsertText(this.ctx.cfg.BOX_RECORDS_FOLDER_ID!, name, md);
+    } catch (err) {
+      throw new MistrialError(`Box didn't take the VACATED record, so the court won't rewind (nothing would remember): ${(err as Error).message}`);
+    }
+    this.emit(caseId, "court", "mistrial.declared", "MISTRIAL! The Executive Branch rewinds time…", { checkpoint: check.checkpoint });
+    const delayMs = this.ctx.cfg.MISTRIAL_RESTORE_DELAY_MS;
+    this.ctx.spriteEnv.restoreDetached(check.checkpoint, delayMs);
+    this.ctx.log(`[mistrial] ${name}: restoring ${check.checkpoint} in ${delayMs} ms`);
+    return { checkpoint: check.checkpoint, delayMs };
+  }
+
+  /** On resume: if Box says this case was vacated, close it as vacated instead of re-ruling it. */
+  private async vacatedInBox(c: CaseRow): Promise<boolean> {
+    const folder = this.ctx.cfg.BOX_RECORDS_FOLDER_ID;
+    if (!this.ctx.cfg.MISTRIAL_ENABLED || !folder || this.vacatedChecked.has(c.id)) return false;
+    this.vacatedChecked.add(c.id);
+    if (c.status !== "deliberating" && c.status !== "gathering") return false; // a checkpoint is only taken here
+    try {
+      const fileId = await this.ctx.box.findInFolder(folder, recordName(c.number));
+      if (!fileId || !(await this.ctx.box.downloadText(fileId)).includes(VACATED_MARKER)) return false;
+    } catch (err) {
+      this.ctx.log(`[mistrial] couldn't check Box for ${recordName(c.number)}: ${(err as Error).message}`);
+      return false;
+    }
+    this.ctx.db.prepare("UPDATE cases SET status = 'vacated', ruled_at = ? WHERE id = ?").run(Date.now(), c.id);
+    this.emit(c.id, "court", "case.vacated", "Mistrial! These proceedings never happened. (The Box record remembers.)");
+    this.emit(c.id, "bailiff", "case.closed", "The case is closed. It never happened.", { status: "vacated" });
+    return true;
+  }
+
   // ---------- petitions ----------
 
   /** The Executive Branch (a parent) approves or denies a granted petition. */
@@ -491,6 +576,8 @@ export class Hearings {
     const ctx = this.ctx;
     let c = this.getCase(caseId);
     if (!c || FINAL_STATUSES.has(c.status)) return;
+    // After a mistrial rewinds the Sprite, the case comes back "open". Box remembers it was vacated.
+    if (await this.vacatedInBox(c)) return;
     if (c.status === "appealed") return this.runAppeal(c);
     const label = caseLabel(c.number);
 
@@ -534,10 +621,13 @@ export class Hearings {
     const struckLater = this.filings(caseId, true).filter((f) => f.struck);
     if (struckLater.length) return this.finish(c, code, await this.contemptRuling(c, code, struckLater[0]));
 
-    // 5. Deliberation
+    // 5. Deliberation (a checkpoint first, so a mistrial can rewind to before the ruling)
     this.setStatus(caseId, "deliberating");
     let delib = this.data<DeliberationData>(caseId, "deliberation.done");
-    if (!delib) delib = await this.deliberate(c, caseType, code);
+    if (!delib) {
+      await this.checkpointBeforeRuling(c);
+      delib = await this.deliberate(c, caseType, code);
+    }
 
     // 6. Ruling
     let ruling = this.data<RulingData>(caseId, "ruling.decided");
@@ -809,6 +899,8 @@ export class Hearings {
   private rule(c: CaseRow, caseType: CaseType, code: FamilyCode, delib: DeliberationData): RulingData {
     const data = this.decideRuling(c, caseType, code, delib);
     this.saveRuling(c, data);
+    const cp = this.data<{ id: string }>(c.id, "checkpoint.created");
+    if (cp?.id) this.ctx.db.prepare("UPDATE rulings SET checkpoint_id = ? WHERE case_id = ? AND round = 0").run(cp.id, c.id);
     this.emit(c.id, "judge", "ruling.decided", this.rulingMessage(c, caseType, data), data);
     return data;
   }

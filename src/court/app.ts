@@ -20,6 +20,7 @@ import { labelsFor } from "./labels.ts";
 import { loadPeople, PeopleError, publicParty } from "../shared/people.ts";
 import { landmarkAsPrecedent } from "./landmarks.ts";
 import { AppealError, ApprovalError, SummonsError } from "./hearing.ts";
+import { MistrialError } from "./mistrial.ts";
 import { caseLabel } from "./precedent.ts";
 import { findPrecedent } from "./precedent.ts";
 import { caseView, docketView, publicEvent } from "./views.ts";
@@ -173,6 +174,18 @@ export function createCourtApp(ctx: CourtContext, opts: CourtAppOptions = {}) {
       throw err;
     }
     return c.json({ ok: true, url: `/cases/${k.number}` }, 201);
+  });
+
+  app.post("/cases/:n{[0-9]+}/mistrial", parent, async (c) => {
+    const k = ctx.hearings.getCaseByNumber(Number(c.req.param("n")));
+    if (!k) return c.json({ error: "The court can't find that case." }, 404);
+    try {
+      const { delayMs } = await ctx.hearings.declareMistrial(k.id);
+      return c.json({ ok: true, rewindInMs: delayMs, message: "Mistrial declared. Rewinding time…" }, 202);
+    } catch (err) {
+      if (err instanceof MistrialError) return c.json({ error: err.message }, 409);
+      throw err;
+    }
   });
 
   app.post("/cases/:n{[0-9]+}/approval", parent, async (c) => {

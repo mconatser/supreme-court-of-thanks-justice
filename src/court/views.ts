@@ -174,6 +174,8 @@ export function caseView(c: CaseRow, ctx: CourtContext, roles: string[] = []) {
     ruledAt: c.ruled_at,
     running: ctx.hearings.isRunning(c.id),
     viewer: { isParent: roles.includes("parent") },
+    // The real guards run on POST; this only decides whether to show a parent the button.
+    mistrial: { offered: ctx.cfg.MISTRIAL_ENABLED && roles.includes("parent") && (c.status === "ruled" || c.status === "too_close") },
     appeal: appealView(ctx, c, filings, L),
     // Court-passcode viewers share the family phone, so pending summonses link straight to testimony.
     summons: (ctx.db.prepare("SELECT person_id, token, status, sent_via FROM summons WHERE case_id = ? ORDER BY id").all(c.id) as {

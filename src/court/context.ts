@@ -11,6 +11,7 @@ import type { Person } from "../shared/people.ts";
 import { linkParties, openDb, type DB, type EventRow } from "./db.ts";
 import { BoxClient } from "./box.ts";
 import { Mailer } from "./mail.ts";
+import { spriteEnv, type SpriteEnv } from "./mistrial.ts";
 import { Voice } from "./voice.ts";
 import { FamilyCodeSource } from "./familyCode.ts";
 import { LandmarkSource } from "./landmarks.ts";
@@ -29,6 +30,7 @@ export interface CourtContext {
   bus: EventEmitter<{ event: [EventRow] }>;
   familyCode: FamilyCodeSource;
   box: BoxClient;
+  spriteEnv: SpriteEnv;
   mailer: Mailer;
   voice: Voice;
   landmarks: LandmarkSource;
@@ -46,6 +48,7 @@ export interface ContextOverrides {
   ollama?: Ollama;
   now?: () => Date;
   log?: (msg: string) => void;
+  spriteEnv?: SpriteEnv;
   /** Defaults to <CONTENT_DIR>/landmark-cases.md. */
   landmarksPath?: string;
 }
@@ -111,6 +114,7 @@ export function createCourtContext(cfg: Config, people: Person[], o: ContextOver
       log,
     }),
     box,
+    spriteEnv: o.spriteEnv ?? spriteEnv(cfg.SPRITE_ENV_BIN),
     mailer,
     voice,
     landmarks: new LandmarkSource(o.landmarksPath ?? join(cfg.CONTENT_DIR, "landmark-cases.md")),

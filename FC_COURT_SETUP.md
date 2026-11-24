@@ -95,6 +95,13 @@ Then take a checkpoint inside the Sprite:
 sprite exec -s fc-court -- sprite-env checkpoints create --comment "fc-court: first deploy"
 ```
 
+## Turning on mistrials (fc-court only)
+
+1. On `fc-court`, set `MISTRIAL_ENABLED=true` in `.env`, then run `sprite-env services restart court`. Never turn it on for dev: a restore would end the Claude Code session there.
+2. Redeploy once (`scripts/deploy.sh fc-court`) so `data/DEPLOY_ID` is fresh. Checkpoints older than the last deploy are refused, because restoring one would roll back the code.
+3. To try it, file and rule a case. The transcript shows "The clerk saves a copy of the whole courthouse". Then, logged in with the **parent** passcode, press **Declare a mistrial**. The record in Box gets a VACATED version, the courthouse rewinds and restarts (about 10–30 s), and the case comes back as vacated: "These proceedings never happened. (The Box record remembers.)"
+4. Guards: the court refuses if a later case was filed, if the checkpoint was pruned (only the last few are kept), if it's older than the deploy, or if Box can't take the VACATED record.
+
 ## Redeploying
 
 ```bash

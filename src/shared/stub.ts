@@ -41,6 +41,7 @@ const routes: Route[] = [
   { provider: "ollama", method: "GET", path: "/api/tags", handler: () => fixture("ollama/tags.json") },
   { provider: "box", method: "GET", path: /^\/2\.0\/files\/[^/]+\/content$/, handler: (r) => stubBox.download(r) },
   { provider: "box", method: "GET", path: /^\/2\.0\/files\/[^/]+$/, handler: (r) => stubBox.info(r) },
+  { provider: "box", method: "GET", path: /^\/2\.0\/folders\/[^/]+\/items$/, handler: (r) => stubBox.list(r) },
   { provider: "box", method: "POST", path: /^\/upload\/files\/content$/, handler: (r) => stubBox.upload(r) },
   { provider: "box", method: "POST", path: /^\/upload\/files\/[^/]+\/content$/, handler: (r) => stubBox.uploadVersion(r) },
   { provider: "agentmail", method: "GET", path: "/v0/auth/me", handler: () => ({ credential_kind: "api_key", credential_scope: "inbox" }) },
@@ -116,6 +117,12 @@ export const stubBox = {
   },
   describe(f: StubFile) {
     return { type: "file", id: f.id, name: f.name, file_version: { type: "file_version", id: `${f.id}-v${f.versions.length}` }, modified_at: "2026-11-24T00:00:00-08:00" };
+  },
+  list(r: StubRequest) {
+    const fail = this.failing();
+    if (fail) return fail;
+    const entries = this.inFolder(r.url.pathname.split("/")[3]).map((f) => ({ type: "file", id: f.id, name: f.name }));
+    return { total_count: entries.length, entries };
   },
   info(r: StubRequest) {
     const fail = this.failing();

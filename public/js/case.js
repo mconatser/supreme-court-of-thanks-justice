@@ -22,6 +22,7 @@
     renderSummons(c.summons || []);
     renderRuling(c);
     renderAppeal(c);
+    renderMistrial(c);
     return c;
   }
 
@@ -62,6 +63,64 @@
     });
     const open = el("button", { class: "btn secondary", type: "button", onclick: () => { form.hidden = false; open.hidden = true; } }, "📣 Appeal (new evidence only)");
     slot.replaceChildren(open, form);
+  }
+
+  function renderMistrial(c) {
+    const slot = document.getElementById("mistrial-slot");
+    if (c.status === "vacated") {
+      return slot.replaceChildren(el("div", { class: "banner recess" }, "🌀 Mistrial: these proceedings never happened. (The Box record remembers.)"));
+    }
+    if (!c.mistrial || !c.mistrial.offered) return slot.replaceChildren();
+    const err = el("p", { class: "error", role: "alert" });
+    const sure = el(
+      "div",
+      { class: "banner", hidden: true },
+      el("div", { style: "font-weight:700" }, "Rewind the whole courthouse to before this ruling?"),
+      el("div", { class: "small muted", style: "margin:4px 0 10px" }, "The ruling, and everything since, will never have happened. Box keeps a VACATED record."),
+      el(
+        "div",
+        { class: "row2" },
+        el("button", { class: "btn", type: "button", onclick: () => declare() }, "🌀 Yes, rewind time"),
+        el("button", { class: "btn secondary", type: "button", onclick: () => { sure.hidden = true; open.hidden = false; } }, "Cancel"),
+      ),
+      err,
+    );
+    const open = el("button", { class: "btn secondary", type: "button", onclick: () => { sure.hidden = false; open.hidden = true; } }, "⚠️ Declare a mistrial (parent only)");
+    slot.replaceChildren(open, sure);
+
+    async function declare() {
+      err.textContent = "";
+      let before;
+      try {
+        before = (await api("/healthz")).bootedAt;
+        await api(`/cases/${n}/mistrial`, { method: "POST" });
+      } catch (e) {
+        err.textContent = e.message;
+        return;
+      }
+      if (es) es.close();
+      closedSeen = true;
+      const msg = el("div", {}, "Mistrial declared. Rewinding time…");
+      document.body.append(el("div", { class: "wake-splash" }, el("div", { class: "wake-card" }, el("div", { class: "wake-gavel" }, "🌀"), el("div", { class: "wake-title" }, "MISTRIAL!"), msg)));
+      // The Sprite restarts from the checkpoint; wait until it answers with a new boot time.
+      const started = Date.now();
+      const poll = async () => {
+        try {
+          const h = await (await fetch("/healthz", { cache: "no-store" })).json();
+          if (h.bootedAt !== before) {
+            msg.textContent = "These proceedings never happened. (The Box record remembers.)";
+            setTimeout(() => location.reload(), 4000);
+            return;
+          }
+        } catch { /* the courthouse is mid-rewind */ }
+        if (Date.now() - started > 120000) {
+          msg.textContent = "Time travel is taking a while. Try reloading in a minute.";
+          return;
+        }
+        setTimeout(poll, 1500);
+      };
+      setTimeout(poll, 2500);
+    }
   }
 
   function renderSummons(list) {
