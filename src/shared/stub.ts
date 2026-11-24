@@ -277,7 +277,7 @@ function jevStub(req: { model?: string; state: any; questions: Record<string, an
       } else if (key.startsWith("justice_") && labels.includes("plaintiff")) {
         const close = has(caseText, rules.justices.close);
         const pPlaintiff = close
-          ? rules.justices.values.close + jitter(key, 0.02)
+          ? rules.justices.values.close + jitter(key, 0.008) // stays just above 0.5: a close call that leans, never a tie
           : has(caseText, rules.justices.defendant)
             ? 1 - rules.justices.values.clear + jitter(key)
             : rules.justices.values.clear + jitter(key);

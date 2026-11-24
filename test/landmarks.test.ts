@@ -5,10 +5,16 @@ import { parsePeople } from "../src/shared/people.ts";
 import { stubCalls } from "../src/shared/stub.ts";
 import { login, makeApp, makeCtx, TEST_ENV } from "./helpers.ts";
 
-const TEMPLATE = "content/landmark-cases.md";
+const TEMPLATE = "test/fixtures/landmarks-sample.md";
 
 describe("landmark cases", () => {
-  it("parses Max's template: two example landmarks with articles", () => {
+  it("ignores landmarks still marked as placeholders (content/landmark-cases.md today)", () => {
+    const { landmarks, warnings } = parseLandmarks(readFileSync("content/landmark-cases.md", "utf8"));
+    expect(landmarks).toEqual([]);
+    expect(warnings.join(" ")).toMatch(/L1 is still a placeholder.*L2 is still a placeholder/);
+  });
+
+  it("parses landmarks: refs, questions, outcomes and articles", () => {
     const { landmarks, warnings } = parseLandmarks(readFileSync(TEMPLATE, "utf8"));
     expect(warnings).toEqual([]);
     expect(landmarks.map((l) => l.ref)).toEqual(["L1", "L2"]);
@@ -47,7 +53,7 @@ describe("landmark cases", () => {
     const view = await (await app.request(`/api/cases/${number}`, { headers: { cookie } })).json();
     expect(view.ruling.seats.map((s: any) => s.status)).toEqual(["voted", "voted", "voted"]);
     const memory = view.ruling.seats[2];
-    expect(memory.cites).toEqual([{ ref: "L1", label: "Landmark L1", title: "(Example: delete me) The Great Dibs Ruling", landmark: true }]);
+    expect(memory.cites).toEqual([{ ref: "L1", label: "Landmark L1", title: "The Great Dibs Ruling", landmark: true }]);
   });
 
   it("an off-topic case #1 gets no landmark: Justice Memory recuses", async () => {

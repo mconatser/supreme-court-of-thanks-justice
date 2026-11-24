@@ -39,6 +39,10 @@ export function parseLandmarks(md: string): LandmarkFile {
       vote: field("Vote"),
       articles: (field("Articles").match(/\d+/g) ?? []).map(Number),
     };
+    if (/^\(placeholder/i.test(lm.title)) {
+      warnings.push(`Landmark ${ref} is still a placeholder, so the court ignores it.`);
+      continue;
+    }
     if (!lm.question || !lm.outcome) {
       warnings.push(`Landmark ${ref} needs both a Question and an Outcome line, so the court skipped it.`);
       continue;
