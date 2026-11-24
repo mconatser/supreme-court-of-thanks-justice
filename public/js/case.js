@@ -19,8 +19,25 @@
       el("p", { class: "muted small", style: "margin-top:-6px" }, statusChip(c.status), "  ", `${c.plaintiff} v. ${c.defendant}`, c.type ? ` · ${c.type}` : ""),
     );
     renderFilings(c.filings);
+    renderSummons(c.summons || []);
     renderRuling(c);
     return c;
+  }
+
+  function renderSummons(list) {
+    const slot = document.getElementById("summons-slot");
+    const pending = list.filter((s) => s.status === "pending");
+    slot.replaceChildren(
+      ...pending.map((s) =>
+        el(
+          "div",
+          { class: "banner", style: "border-color:var(--warn)" },
+          el("div", { style: "font-weight:700" }, `📜 The court summons ${s.party}!`),
+          el("div", { class: "small muted", style: "margin:4px 0 10px" }, s.via === "email" ? "A summons was emailed, or answer here if they're with you." : "Hand them the phone so they can tell their side."),
+          el("a", { class: "btn", href: s.url }, `🗣️ ${s.party}: tell your side`),
+        ),
+      ),
+    );
   }
 
   function renderFilings(filings) {
@@ -127,7 +144,7 @@
         el("div", {}, el("div", { class: "actor" }, e.actor), el("div", { class: "msg" }, e.message)),
       ),
     );
-    if (["ruling.decided", "opinion.written", "screening.done"].includes(e.kind)) refresh().catch(() => {});
+    if (["ruling.decided", "opinion.written", "screening.done", "summons.issued", "testimony.received", "summons.expired"].includes(e.kind)) refresh().catch(() => {});
     if (e.kind === "case.closed") onClosed();
   }
 

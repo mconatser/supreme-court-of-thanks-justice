@@ -5,7 +5,9 @@
  * event and reused on resume: Jev drifts a few points between identical runs, so re-asking after
  * a Sprite wake could flip a verdict.
  */
+import { randomBytes } from "node:crypto";
 import { GatewayError } from "../shared/gateway.ts";
+import { contemptLetter, rulingLetter, summonsLetter } from "./mail.ts";
 import { RecessError } from "../shared/budget.ts";
 import {
   band,
@@ -36,6 +38,7 @@ import { landmarkAsPrecedent } from "./landmarks.ts";
 import { caseLabel, findPrecedent } from "./precedent.ts";
 import { recordName, renderRecord } from "./record.ts";
 import { caseView } from "./views.ts";
+import { labelsFor } from "./labels.ts";
 
 export interface FileInput {
   plaintiff: string;
@@ -57,7 +60,31 @@ export interface ScreeningData {
 export interface SufficiencyData {
   p: number;
   band: string;
-  inAbsentia: string | null;
+  /** The party the judge hasn't heard from (alias snapshot), if any. */
+  unheard?: string | null;
+  unheardId?: string | null;
+  /** Phase 1 events only. */
+  inAbsentia?: string | null;
+}
+
+export interface SummonsRow {
+  id: number;
+  case_id: number;
+  person_id: string;
+  token: string;
+  status: "pending" | "answered" | "expired";
+  sent_via: "email" | "in_person";
+  created_at: number;
+  answered_at: number | null;
+}
+
+export class SummonsError extends Error {
+  constructor(
+    readonly status: 404 | 409,
+    message: string,
+  ) {
+    super(message);
+  }
 }
 
 export interface DeliberationData {
@@ -189,6 +216,33 @@ export class Hearings {
     await this.syncRecord(caseId);
   }
 
+  // ---------- notices (AgentMail) ----------
+
+  private async sendNotices(caseId: number, ruling: RulingData) {
+    const c = this.getCase(caseId)!;
+    const L = labelsFor(this.ctx.people, c);
+    const url = `${this.ctx.cfg.PUBLIC_BASE_URL.replace(/\/+$/, "")}/cases/${c.number}`;
+    const label = caseLabel(c.number);
+    const title = L.relabel(c.title);
+    const headline =
+      ruling.kind === "too_close"
+        ? "It was too close to call, so the court ordered a compromise."
+        : ruling.kind === "contempt"
+          ? `${L.relabel(ruling.contemnor ?? "")} was held in contempt of court.`
+          : `The court ruled for ${L.relabel(ruling.winner ?? "")}${ruling.decision?.vote ? ` (${ruling.decision.vote})` : ""}.${ruling.sentenceText ? ` Sentence: ${ruling.sentenceText}.` : ""}`;
+    const sent: string[] = [];
+    for (const pid of [...new Set([c.plaintiff_id, c.defendant_id].filter(Boolean) as string[])]) {
+      const person = this.ctx.people.find((p) => p.id === pid);
+      if (!person?.email) continue;
+      const contemnorId = ruling.kind === "contempt" ? (pid === c.plaintiff_id && ruling.contemnor === c.plaintiff) || (pid === c.defendant_id && ruling.contemnor === c.defendant) : false;
+      const l = contemnorId
+        ? contemptLetter({ court: this.ctx.cast.court, alias: person.alias, caseLabel: label, title, sentence: ruling.sentenceText ?? "", url })
+        : rulingLetter({ court: this.ctx.cast.court, alias: person.alias, caseLabel: label, title, headline, url });
+      if ((await this.ctx.mailer.send(person, l)) === "sent") sent.push(person.alias);
+    }
+    if (sent.length) this.emit(caseId, "clerk", "notices.sent", `The clerk emails notice of the ruling to ${sent.join(" and ")}.`, { sent });
+  }
+
   // ---------- the record (Box) ----------
 
   /** File (or re-file, as a new version) the case record in Box. Never throws. */
@@ -279,7 +333,7 @@ export class Hearings {
   private async run(caseId: number): Promise<void> {
     const ctx = this.ctx;
     let c = this.getCase(caseId);
-    if (!c || FINAL_STATUSES.has(c.status) || c.status === "awaiting_testimony") return;
+    if (!c || FINAL_STATUSES.has(c.status)) return;
     const label = caseLabel(c.number);
 
     // 1. All rise
@@ -309,10 +363,18 @@ export class Hearings {
     const struck = this.filings(caseId, true).filter((f) => f.struck);
     if (struck.length) return this.finish(c, code, await this.contemptRuling(c, code, struck[0]));
 
-    // 4. Sufficiency (Phase 1: proceed in absentia; summonses arrive in Phase 2)
-    this.setStatus(caseId, "gathering");
+    // 4. Sufficiency: summon the unheard party once, and wait (or proceed in absentia)
+    if (c.status !== "awaiting_testimony") this.setStatus(caseId, "gathering");
     let sufficiency = this.data<SufficiencyData>(caseId, "sufficiency.done");
     if (!sufficiency) sufficiency = await this.checkSufficiency(c, code);
+    const gate = await this.gatherTestimony(c, sufficiency);
+    if (gate.pause) return;
+    this.setStatus(caseId, "gathering");
+
+    // Testimony gets its own contempt screen.
+    if (this.filings(caseId, true).some((f) => f.contempt_noul === null)) await this.screenMore(c);
+    const struckLater = this.filings(caseId, true).filter((f) => f.struck);
+    if (struckLater.length) return this.finish(c, code, await this.contemptRuling(c, code, struckLater[0]));
 
     // 5. Deliberation
     this.setStatus(caseId, "deliberating");
@@ -323,7 +385,7 @@ export class Hearings {
     let ruling = this.data<RulingData>(caseId, "ruling.decided");
     if (!ruling) ruling = this.rule(c, caseType, code, delib);
 
-    return this.finish(c, code, ruling, sufficiency.inAbsentia);
+    return this.finish(c, code, ruling, gate.inAbsentia);
   }
 
   private computedFacts(c: CaseRow) {
@@ -383,13 +445,13 @@ export class Hearings {
     const res = await this.ctx.jev.ask(state, { sufficient: sufficiencyQuestion() });
     const p = res.answers.sufficient.noul;
     const unheard = !facts.defendant_heard ? c.defendant : !facts.plaintiff_heard ? c.plaintiff : null;
-    const inAbsentia = p < THRESHOLDS.yes ? unheard : null;
-    const data: SufficiencyData = { p, band: band(p), inAbsentia };
+    const unheardId = unheard === c.defendant ? c.defendant_id : unheard === c.plaintiff ? c.plaintiff_id : null;
+    const data: SufficiencyData = { p, band: band(p), unheard, unheardId };
     const msg =
       p >= THRESHOLDS.yes
         ? "The judge has heard enough to decide."
-        : inAbsentia
-          ? `The judge would like to hear from ${inAbsentia}, but today the court will proceed without them (in absentia).`
+        : unheard
+          ? `The judge would like to hear from ${unheard} before deciding.`
           : "The record is a little thin, but the court will decide anyway.";
     this.emit(c.id, "judge", "sufficiency.done", msg, data);
     return data;
@@ -439,6 +501,126 @@ export class Hearings {
       : `The clerk pulls ${n} past case${n === 1 ? "" : "s"}; ${k ? `${k} ${k === 1 ? "is" : "are"} relevant` : "none of them are really about this"}.`;
     this.emit(c.id, "clerk", "precedent.checked", msg, check);
     return check;
+  }
+
+  // ---------- summons (SPEC §8.6) ----------
+
+  summonsFor(caseId: number): SummonsRow[] {
+    return this.ctx.db.prepare("SELECT * FROM summons WHERE case_id = ? ORDER BY id").all(caseId) as SummonsRow[];
+  }
+
+  private timeoutMs() {
+    return this.ctx.cfg.SUMMONS_TIMEOUT_MIN * 60_000;
+  }
+
+  /**
+   * Decide whether to wait for testimony. Each party is summoned at most once per case; after
+   * testimony arrives, or the summons times out, the court deliberates regardless.
+   */
+  private async gatherTestimony(c: CaseRow, s: SufficiencyData): Promise<{ pause: true } | { pause: false; inAbsentia: string | null }> {
+    const unheard = s.unheard ?? s.inAbsentia ?? null;
+    if (s.p >= THRESHOLDS.yes || !unheard) return { pause: false, inAbsentia: null };
+    const personId = s.unheardId ?? null;
+    if (!personId) return { pause: false, inAbsentia: unheard }; // not on the court's list: can't be summoned
+    const existing = this.summonsFor(c.id).find((x) => x.person_id === personId);
+    if (!existing) {
+      await this.issueSummons(c, personId, unheard);
+      return { pause: true };
+    }
+    if (existing.status === "answered") return { pause: false, inAbsentia: null };
+    if (existing.status === "expired") return { pause: false, inAbsentia: unheard };
+    const due = existing.created_at + this.timeoutMs();
+    if (Date.now() >= due) {
+      this.ctx.db.prepare("UPDATE summons SET status = 'expired' WHERE id = ? AND status = 'pending'").run(existing.id);
+      this.emit(c.id, "clerk", "summons.expired", `${unheard} didn't answer the summons in time, so the court will decide without them (in absentia).`);
+      return { pause: false, inAbsentia: unheard };
+    }
+    this.setStatus(c.id, "awaiting_testimony");
+    this.wakeAt(c.id, due);
+    return { pause: true };
+  }
+
+  private wakeTimers = new Map<number, NodeJS.Timeout>();
+  private wakeAt(caseId: number, when: number) {
+    if (this.wakeTimers.has(caseId)) return;
+    const t = setTimeout(() => {
+      this.wakeTimers.delete(caseId);
+      void this.start(caseId);
+    }, Math.max(0, when - Date.now()) + 250);
+    t.unref();
+    this.wakeTimers.set(caseId, t);
+  }
+
+  private async issueSummons(c: CaseRow, personId: string, alias: string) {
+    const token = randomBytes(32).toString("base64url");
+    const person = this.ctx.people.find((p) => p.id === personId);
+    const url = `${this.ctx.cfg.PUBLIC_BASE_URL.replace(/\/+$/, "")}/summons/${token}`;
+    const other = alias === c.plaintiff ? c.defendant : c.plaintiff;
+    const result = await this.ctx.mailer.send(
+      person,
+      summonsLetter({ court: this.ctx.cast.court, alias: person?.alias ?? alias, caseLabel: caseLabel(c.number), title: c.title, otherParty: other, url, minutes: this.ctx.cfg.SUMMONS_TIMEOUT_MIN }),
+    );
+    const via = result === "sent" ? "email" : "in_person";
+    this.ctx.db
+      .prepare("INSERT INTO summons(case_id, person_id, token, status, sent_via, created_at) VALUES (?, ?, ?, 'pending', ?, ?)")
+      .run(c.id, personId, token, via, Date.now());
+    this.setStatus(c.id, "awaiting_testimony");
+    const how =
+      via === "email"
+        ? "A summons is on its way by email."
+        : result === "budget"
+          ? "The court is out of stamps for today, so please answer here in person."
+          : "Please answer here in person: tap “Tell your side”.";
+    this.emit(c.id, "clerk", "summons.issued", `The court summons ${alias} to tell their side. ${how}`, { party: alias, via });
+    this.wakeAt(c.id, Date.now() + this.timeoutMs());
+  }
+
+  /** Testimony from a summons link. Resumes the hearing. */
+  answerSummons(token: string, testimony: string): { caseNumber: number } {
+    const s = this.ctx.db.prepare("SELECT * FROM summons WHERE token = ?").get(token) as SummonsRow | undefined;
+    if (!s) throw new SummonsError(404, "The court can't find that summons.");
+    if (s.status !== "pending") {
+      throw new SummonsError(409, s.status === "answered" ? "The court already heard from you. Thank you!" : "This summons has expired, and the court decided without you.");
+    }
+    const c = this.getCase(s.case_id)!;
+    const alias = s.person_id === c.plaintiff_id ? c.plaintiff : s.person_id === c.defendant_id ? c.defendant : this.ctx.people.find((p) => p.id === s.person_id)?.alias ?? "Witness";
+    const now = Date.now();
+    this.ctx.db.transaction(() => {
+      this.ctx.db.prepare("UPDATE summons SET status = 'answered', answered_at = ? WHERE id = ?").run(now, s.id);
+      this.ctx.db
+        .prepare("INSERT INTO filings(case_id, author, author_id, kind, body, created_at) VALUES (?, ?, ?, 'testimony', ?, ?)")
+        .run(c.id, alias, s.person_id, testimony, now);
+    })();
+    clearTimeout(this.wakeTimers.get(c.id));
+    this.wakeTimers.delete(c.id);
+    this.emit(c.id, "clerk", "testimony.received", `${alias} has answered the summons. The hearing continues!`);
+    void this.start(c.id);
+    return { caseNumber: c.number };
+  }
+
+  summonsByToken(token: string): SummonsRow | undefined {
+    return this.ctx.db.prepare("SELECT * FROM summons WHERE token = ?").get(token) as SummonsRow | undefined;
+  }
+
+  /** Contempt screen for filings added after the first screening (testimony). */
+  private async screenMore(c: CaseRow) {
+    const pending = this.filings(c.id, true).filter((f) => f.contempt_noul === null);
+    const questions: Record<string, ReturnType<typeof contemptQuestion>> = {};
+    for (const f of pending) questions[`contempt_F${f.id}`] = contemptQuestion(`F${f.id}`);
+    const state = buildState({ case: c, filings: pending.map((f) => ({ ref: `F${f.id}`, author: f.author, kind: f.kind, body: f.body })) });
+    const res = await this.ctx.jev.ask(state, questions);
+    const a = res.answers as Record<string, { noul: number }>;
+    const results = pending.map((f) => {
+      const p = Number(a[`contempt_F${f.id}`]?.noul ?? 0);
+      return { filingId: f.id, author: f.author, p, band: band(p) };
+    });
+    const upd = this.ctx.db.prepare("UPDATE filings SET contempt_noul = ?, struck = ? WHERE id = ?");
+    this.ctx.db.transaction(() => results.forEach((x) => upd.run(x.p, x.p >= THRESHOLDS.yes ? 1 : 0, x.filingId)))();
+    this.emit(c.id, "bailiff", "screening.more", "The bailiff checks the new testimony for funny business.", { contempt: results });
+    for (const x of results) {
+      if (x.band === "unsure") this.emit(c.id, "bailiff", "contempt.warning", `The court has its eye on you, ${x.author}.`, x);
+      if (x.band === "yes") this.emit(c.id, "bailiff", "contempt.found", `Objection! ${x.author}'s testimony tries to sway the court. It is struck from the record.`, x);
+    }
   }
 
   private async deliberate(c: CaseRow, caseType: CaseType, code: FamilyCode): Promise<DeliberationData> {
@@ -562,8 +744,9 @@ export class Hearings {
     const granted = ruling.kind === "ruled" && ruling.decision?.outcome === "plaintiff" && this.getCase(id)!.type === "petition";
     if (granted) this.ctx.db.prepare("UPDATE cases SET approval = 'pending' WHERE id = ? AND approval IS NULL").run(id);
 
-    // 8. Record: file it in Box (never blocks the gavel; retried on the next boot).
+    // 8. Record: file it in Box (never blocks the gavel; retried on the next boot), then notices.
     if (!this.lastEvent(id, "record.filed")) await this.syncRecord(id);
+    if (!this.lastEvent(id, "notices.sent")) await this.sendNotices(id, ruling);
 
     // 9. Gavel
     if (!this.lastEvent(id, "case.closed")) {

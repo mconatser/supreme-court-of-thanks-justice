@@ -12,6 +12,16 @@ const FILING = {
   defendant: "Sky Sister",
   claim: "Sky Sister took the front seat even though I called it first.",
   relief: "I get the front seat for a week.",
+  response: "I was in the car first, so I got the front seat.",
+};
+/** The same case, filed straight into the hearing pipeline with both sides heard. */
+const BOTH_SIDES = {
+  plaintiff: FILING.plaintiff,
+  defendant: FILING.defendant,
+  claim: FILING.claim,
+  relief: FILING.relief,
+  filedBy: "pro_se" as const,
+  filings: [{ author: FILING.defendant, kind: "response", body: FILING.response }],
 };
 
 describe("auth and pages", () => {
@@ -104,7 +114,7 @@ describe("SSE stream", () => {
   it("replays from Last-Event-ID, sets no-buffering headers, and closes on a final status", async () => {
     const { app, ctx } = makeApp();
     const cookie = await login(app);
-    const { id, number } = ctx.hearings.file({ ...FILING, filedBy: "pro_se" });
+    const { id, number } = ctx.hearings.file(BOTH_SIDES);
     await ctx.hearings.start(id);
     const ids = (ctx.db.prepare("SELECT id FROM events WHERE case_id = ? ORDER BY id").all(id) as { id: number }[]).map((r) => r.id);
 
@@ -122,7 +132,7 @@ describe("SSE stream", () => {
   it("streams a live hearing to the end", async () => {
     const { app, ctx } = makeApp();
     const cookie = await login(app);
-    const { number } = ctx.hearings.file({ ...FILING, filedBy: "pro_se" });
+    const { number } = ctx.hearings.file(BOTH_SIDES);
     // Opening the stream starts the hearing (it isn't running yet).
     const res = await app.request(`/cases/${number}/stream`, { headers: { cookie } });
     const events = sseEvents(await readSSE(res));
@@ -135,8 +145,9 @@ describe("SSE stream", () => {
   it("sends heartbeat comments and closes after the max duration", async () => {
     const { app, ctx } = makeApp({}, { heartbeatMs: 20, streamMaxMs: 150 });
     const cookie = await login(app);
-    const { id, number } = ctx.hearings.file({ ...FILING, filedBy: "pro_se" });
-    ctx.db.prepare("UPDATE cases SET status = 'awaiting_testimony' WHERE id = ?").run(id); // a paused hearing
+    const { id, number } = ctx.hearings.file({ ...BOTH_SIDES, filings: [] }); // one-sided: the court summons the defendant
+    await ctx.hearings.start(id);
+    expect(ctx.hearings.getCase(id)!.status).toBe("awaiting_testimony"); // a paused hearing
     const text = await readSSE(await app.request(`/cases/${number}/stream`, { headers: { cookie } }));
     expect(text).toContain(": heartbeat");
     expect(sseEvents(text).at(-1)!.event).toBe("timeout");

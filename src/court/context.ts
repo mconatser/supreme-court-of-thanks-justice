@@ -10,6 +10,7 @@ import { createOllama, type Ollama } from "../shared/ollama.ts";
 import type { Person } from "../shared/people.ts";
 import { linkParties, openDb, type DB, type EventRow } from "./db.ts";
 import { BoxClient } from "./box.ts";
+import { Mailer } from "./mail.ts";
 import { FamilyCodeSource } from "./familyCode.ts";
 import { LandmarkSource } from "./landmarks.ts";
 import { Hearings } from "./hearing.ts";
@@ -27,6 +28,7 @@ export interface CourtContext {
   bus: EventEmitter<{ event: [EventRow] }>;
   familyCode: FamilyCodeSource;
   box: BoxClient;
+  mailer: Mailer;
   landmarks: LandmarkSource;
   persona: () => string;
   hearings: Hearings;
@@ -70,6 +72,7 @@ export function createCourtContext(cfg: Config, people: Person[], o: ContextOver
     log,
   });
   const box = new BoxClient(gateway);
+  const mailer = new Mailer({ gateway, budget, inboxId: cfg.AGENTMAIL_INBOX_ID, log });
   const bus = new EventEmitter<{ event: [EventRow] }>();
   bus.setMaxListeners(200);
 
@@ -97,6 +100,7 @@ export function createCourtContext(cfg: Config, people: Person[], o: ContextOver
       log,
     }),
     box,
+    mailer,
     landmarks: new LandmarkSource(o.landmarksPath ?? join(cfg.CONTENT_DIR, "landmark-cases.md")),
     persona: () => {
       try {

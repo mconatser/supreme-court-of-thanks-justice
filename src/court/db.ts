@@ -139,7 +139,7 @@ export type CaseStatus =
   | "vacated";
 
 export const FINAL_STATUSES: ReadonlySet<string> = new Set(["contempt", "ruled", "too_close", "vacated"]);
-export const OPEN_STATUSES: ReadonlySet<string> = new Set(["filed", "screening", "gathering", "deliberating"]);
+export const OPEN_STATUSES: ReadonlySet<string> = new Set(["filed", "screening", "gathering", "awaiting_testimony", "deliberating"]);
 
 export interface CaseRow {
   id: number;

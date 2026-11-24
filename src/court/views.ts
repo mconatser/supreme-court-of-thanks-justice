@@ -11,6 +11,8 @@ import { caseLabel } from "./precedent.ts";
 
 type StoredSeat = Seat & { name: string };
 
+const currentAliasOf = (ctx: CourtContext, personId: string, L: Labels) => ctx.people.find((p) => p.id === personId)?.alias ?? L.plaintiff;
+
 export function publicEvent(e: EventRow, labels?: Labels) {
   return {
     id: e.id,
@@ -122,6 +124,18 @@ export function caseView(c: CaseRow, ctx: CourtContext, roles: string[] = []) {
     ruledAt: c.ruled_at,
     running: ctx.hearings.isRunning(c.id),
     viewer: { isParent: roles.includes("parent") },
+    // Court-passcode viewers share the family phone, so pending summonses link straight to testimony.
+    summons: (ctx.db.prepare("SELECT person_id, token, status, sent_via FROM summons WHERE case_id = ? ORDER BY id").all(c.id) as {
+      person_id: string;
+      token: string;
+      status: string;
+      sent_via: string;
+    }[]).map((s) => ({
+      party: currentAliasOf(ctx, s.person_id, L),
+      status: s.status,
+      via: s.sent_via,
+      url: s.status === "pending" ? `/summons/${s.token}` : null,
+    })),
     filings: filings.map((f) => ({
       author: L.party(f.author, f.author_id),
       kind: f.kind,

@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><meta name="referrer" content="no-referrer"><link rel="stylesheet" href="/css/court.css"><title>Family Court · Summons</title></head>
+<body>
+<header class="bar"><span class="seal">📜</span><h1 data-court-name>Family Court</h1></header>
+<main>
+  <h2 id="heading">You've been summoned!</h2>
+  <div id="details" class="card"><p class="muted">Loading your summons…</p></div>
+  <form id="testify" class="card" hidden autocomplete="off">
+    <label for="testimony">Tell the court your side</label>
+    <textarea id="testimony" data-max="1000" required placeholder="What happened? Stick to the facts (and the Family Code!)."></textarea>
+    <div class="counter" data-for="testimony"></div>
+    <p class="small muted">⚠️ Bribing, threatening or bossing the judge around is contempt of court.</p>
+    <p class="error" id="err" role="alert"></p>
+    <button class="btn" type="submit" id="submit">🗣️ Give testimony</button>
+  </form>
+</main>
+<footer>Voice by ElevenLabs · Decisions by TypeSafe Jev · Running on Fly.io Sprites</footer>
+<script src="/js/common.js"></script>
+<script src="/js/summons.js"></script>
+</body></html>

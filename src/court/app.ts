@@ -18,7 +18,8 @@ import type { CourtContext } from "./context.ts";
 import { linkParties, FINAL_STATUSES, OPEN_STATUSES, type EventRow } from "./db.ts";
 import { labelsFor } from "./labels.ts";
 import { loadPeople, PeopleError } from "../shared/people.ts";
-import { ApprovalError } from "./hearing.ts";
+import { ApprovalError, SummonsError } from "./hearing.ts";
+import { caseLabel } from "./precedent.ts";
 import { findPrecedent } from "./precedent.ts";
 import { caseView, docketView, publicEvent } from "./views.ts";
 
@@ -57,6 +58,7 @@ export function createCourtApp(ctx: CourtContext, opts: CourtAppOptions = {}) {
   const streamMaxMs = opts.streamMaxMs ?? 10 * 60_000;
   const filingLimiter = new RateLimiter(opts.filingsPerHour ?? 10, 3600_000);
   const loginLimiter = new RateLimiter(20, 10 * 60_000);
+  const summonsLimiter = new RateLimiter(20, 3600_000);
   const court = requireRole(cfg, "court");
   const parent = requireRole(cfg, "parent");
   const app = new Hono();
@@ -86,6 +88,45 @@ export function createCourtApp(ctx: CourtContext, opts: CourtAppOptions = {}) {
   app.post("/logout", (c) => {
     endSession(c);
     return c.json({ ok: true });
+  });
+
+  // ---------- summons (token only: the person summoned may not have the court passcode) ----------
+
+  const TOKEN = "{[A-Za-z0-9_-]{20,100}}";
+  app.get(`/summons/:token${TOKEN}`, page("summons.html"));
+
+  app.get(`/api/summons/:token${TOKEN}`, (c) => {
+    const s = ctx.hearings.summonsByToken(c.req.param("token"));
+    if (!s) return c.json({ error: "The court can't find that summons." }, 404);
+    const k = ctx.hearings.getCase(s.case_id)!;
+    const L = labelsFor(ctx.people, k);
+    const you = ctx.people.find((p) => p.id === s.person_id)?.alias ?? "Witness";
+    return c.json({
+      status: s.status,
+      you,
+      caseLabel: caseLabel(k.number),
+      title: L.relabel(k.title),
+      otherParty: s.person_id === k.plaintiff_id ? L.defendant : L.plaintiff,
+      claim: k.claim,
+      relief: k.relief,
+      maxLength: LIMITS.testimony,
+      court: ctx.cast.court,
+    });
+  });
+
+  app.post(`/summons/:token${TOKEN}`, async (c) => {
+    if (!summonsLimiter.take(clientIp(c))) return c.json({ error: "That's a lot of answers! Please wait a bit and try again." }, 429);
+    const body = (await c.req.json().catch(() => ({}))) as { testimony?: unknown };
+    const testimony = String(body.testimony ?? "").trim();
+    if (testimony.length < 2) return c.json({ error: "Tell the court your side first." }, 400);
+    if (testimony.length > LIMITS.testimony) return c.json({ error: `Keep it under ${LIMITS.testimony} characters.` }, 400);
+    try {
+      const { caseNumber } = ctx.hearings.answerSummons(c.req.param("token"), testimony);
+      return c.json({ ok: true, caseNumber });
+    } catch (err) {
+      if (err instanceof SummonsError) return c.json({ error: err.message }, err.status);
+      throw err;
+    }
   });
 
   app.use("/css/*", serveStatic({ root: publicDir }));
