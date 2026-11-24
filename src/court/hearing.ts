@@ -8,6 +8,7 @@
 import { randomBytes } from "node:crypto";
 import { GatewayError } from "../shared/gateway.ts";
 import { contemptLetter, rulingLetter, summonsLetter } from "./mail.ts";
+import { spokenVerdict } from "./voice.ts";
 import { RecessError } from "../shared/budget.ts";
 import {
   band,
@@ -525,7 +526,8 @@ export class Hearings {
       | undefined;
     if (!r?.bench_verdict) return;
     const prefix = round ? "appeal." : "";
-    const result = await this.ctx.voice.speak(c.number, r.bench_verdict, round);
+    // The judge ends with his catchphrase ("The end!!!"); the page bangs the gavel right after it.
+    const result = await this.ctx.voice.speak(c.number, spokenVerdict(r.bench_verdict, this.ctx.cast.catchphrase), round);
     if (result.status === "ready") {
       this.ctx.db.prepare("UPDATE rulings SET audio_path = ? WHERE case_id = ? AND round = ?").run(result.path, caseId, round);
       this.emit(caseId, "judge", `${prefix}voice.ready`, "The judge clears their throat…", { round });

@@ -158,3 +158,130 @@ describe("case page by token (/v/:token, read-only)", () => {
     expect(document.querySelector(".ruling-card")!.textContent).toContain("Ruling for Max");
   });
 });
+
+describe("Max's ruling card", () => {
+  const seat = (key: string, side: string, party: string, pct = 80) => ({ key, name: key, status: "voted", side, party, pct, cites: [] });
+  const recused = (key: string) => ({ key, name: key, status: "recused", reason: "recused: no precedent yet" });
+  const ruled = (over: Record<string, unknown>) =>
+    baseCase({ status: "ruled", final: true, ruling: { sentence: null, citedArticles: [], voice: { status: "none" }, confidencePct: 86, ...over } });
+  const render = async (c: ReturnType<typeof baseCase>) => {
+    current = c;
+    loadPage();
+    await settle();
+    return document.querySelector(".ruling-card")!;
+  };
+  const score = (card: Element) => [...card.querySelectorAll(".rc-score > span")].map((x) => x.textContent).join(" ");
+
+  it("a 3–0 win for the defendant reads “Max 0–3 Chozyn”, with no “Ruling for / Vote” block", async () => {
+    const card = await render({
+      ...ruled({ outcome: "defendant", winner: "Chozyn", vote: "3–0", seats: [seat("justice_letter", "defendant", "Chozyn"), seat("justice_heart", "defendant", "Chozyn"), seat("justice_memory", "defendant", "Chozyn")] }),
+      plaintiff: "Max",
+      defendant: "Chozyn",
+    });
+    expect(card.querySelector(".rc-head .rc-case")!.textContent).toBe("Case #0001");
+    expect(score(card)).toBe("Max 0–3 Chozyn");
+    // Between the justices' votes and the "How sure the court is" bar.
+    const order = [...card.children].map((x) => x.className);
+    expect(order.indexOf("rc-head")).toBe(order.indexOf("rc-seats") + 1);
+    expect(order.indexOf("rc-meter")).toBeGreaterThan(order.indexOf("rc-head"));
+    expect(card.firstElementChild!.className).toBe("rc-seats");
+    expect(card.querySelector(".rc-score .won")!.textContent).toBe("Chozyn");
+    expect(card.textContent).not.toMatch(/Ruling for|Vote 3–0/);
+    expect(card.querySelector(".rc-title")).toBeNull();
+  });
+
+  it("splits, compromises and recusals: “Max 1–1 Hailey”, “Hailey 2–0 Dad”", async () => {
+    const split = await render({
+      ...ruled({ outcome: "compromise", vote: "1–1", split: true, confidencePct: null, seats: [seat("justice_letter", "plaintiff", "Max"), seat("justice_heart", "defendant", "Hailey"), recused("justice_memory")] }),
+      plaintiff: "Max",
+      defendant: "Hailey",
+    });
+    expect(score(split)).toBe("Max 1–1 Hailey");
+    expect(split.querySelector(".rc-outcome")!.textContent).toMatch(/compromise/);
+    const recusal = await render({
+      ...ruled({ outcome: "plaintiff", winner: "Hailey", vote: "2–0", seats: [seat("justice_letter", "plaintiff", "Hailey"), seat("justice_heart", "plaintiff", "Hailey"), recused("justice_memory")] }),
+      plaintiff: "Hailey",
+      defendant: "Dad",
+    });
+    expect(score(recusal)).toBe("Hailey 2–0 Dad");
+  });
+
+  it("contempt (no vote) keeps the old header", async () => {
+    const card = await render(ruled({ outcome: "contempt", contemnor: "Max", vote: null, seats: [], confidencePct: 95 }));
+    expect(card.querySelector(".rc-score")).toBeNull();
+    expect(card.firstElementChild!.className).toBe("rc-case"); // still on top
+    expect(card.querySelector(".rc-title")!.textContent).toBe("Max v. Dad");
+    expect(card.querySelector(".rc-outcome")!.textContent).toMatch(/CONTEMPT/);
+  });
+
+  it("the meter's gradient spans the whole track, so 30% shows only its red end", async () => {
+    const card = await render(ruled({ outcome: "plaintiff", winner: "Max", vote: "2–1", confidencePct: 30, seats: [seat("justice_letter", "plaintiff", "Max")] }));
+    const fill = card.querySelector<HTMLElement>(".rc-meter .fill")!;
+    expect(fill.style.width).toBe("30%");
+    expect(fill.style.backgroundSize).toBe("333.33% 100%");
+  });
+
+  it("the judge in the transcript is 👨‍⚖️", async () => {
+    loadPage();
+    await settle();
+    FakeEventSource.last!.emit("court", { id: 5, ts: Date.now(), actor: "judge", kind: "sufficiency.done", message: "The judge has heard enough." });
+    await settle();
+    expect(document.querySelector("#transcript li:last-child .who")!.textContent).toBe("👨‍⚖️");
+  });
+});
+
+describe("the gavel: three strikes right after the judge's “The end!!!”", () => {
+  class FakeAudio {
+    static made: FakeAudio[] = [];
+    listeners: Record<string, (() => void)[]> = {};
+    playedAt = 0;
+    constructor(public src: string) {
+      FakeAudio.made.push(this);
+    }
+    addEventListener(type: string, fn: () => void) {
+      (this.listeners[type] ??= []).push(fn);
+    }
+    play() {
+      this.playedAt = Date.now();
+      return Promise.resolve();
+    }
+    pause() {}
+    end() {
+      for (const fn of this.listeners.ended ?? []) fn();
+    }
+  }
+
+  const closeLive = async (voice: unknown) => {
+    FakeAudio.made = [];
+    (globalThis as any).Audio = FakeAudio;
+    loadPage(); // the case is still being heard when the page opens: a live session
+    await settle();
+    current = baseCase({
+      status: "ruled",
+      final: true,
+      ruling: { outcome: "plaintiff", winner: "Max", vote: "2–0", confidencePct: 80, seats: [], sentence: null, citedArticles: [], voice },
+    });
+    FakeEventSource.last!.emit("end", {});
+    await settle();
+  };
+
+  it("plays the verdict first, then the gavel three times about 0.4 s apart", async () => {
+    await closeLive({ status: "ready", url: "/cases/1/verdict.mp3" });
+    expect(FakeAudio.made.map((a) => a.src)).toEqual(["/cases/1/verdict.mp3"]);
+    FakeAudio.made[0].end(); // "…The end!!!"
+    await new Promise((r) => setTimeout(r, 950));
+    const strikes = FakeAudio.made.slice(1);
+    expect(strikes.map((a) => a.src)).toEqual(["/sfx/gavel.mp3", "/sfx/gavel.mp3", "/sfx/gavel.mp3"]);
+    const gaps = [strikes[1].playedAt - strikes[0].playedAt, strikes[2].playedAt - strikes[1].playedAt];
+    for (const g of gaps) {
+      expect(g).toBeGreaterThanOrEqual(350);
+      expect(g).toBeLessThan(600);
+    }
+  });
+
+  it("with no voice today, it's just the gavel", async () => {
+    await closeLive({ status: "no_budget" });
+    await new Promise((r) => setTimeout(r, 950));
+    expect(FakeAudio.made.map((a) => a.src)).toEqual(["/sfx/gavel.mp3", "/sfx/gavel.mp3", "/sfx/gavel.mp3"]);
+  });
+});

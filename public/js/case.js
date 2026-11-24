@@ -14,7 +14,7 @@
   const thinking = document.getElementById("thinking");
   const note = document.getElementById("stream-note");
   const cardSlot = document.getElementById("card-slot");
-  const ICONS = { clerk: "📜", bailiff: "👮", judge: "👩‍⚖️", court: "🏛️", executive: "👑", counsel: "💼" };
+  const ICONS = { clerk: "📜", bailiff: "👮", judge: "👨‍⚖️", court: "🏛️", executive: "👑", counsel: "💼" };
   const SEAT_ICONS = { justice_letter: "📖", justice_heart: "❤️", justice_memory: "🧠" };
   let lastId = 0;
   let es = null;
@@ -194,16 +194,39 @@
     );
 
     const pct = r.confidencePct;
+    // Max's header: "Case #0011", then the parties with the vote between them, each count
+    // next to its own party ("Max 0–3 Chozyn"). No votes (contempt…): the old header and result.
+    const voted = (r.seats || []).filter((s) => s.status === "voted");
+    const forP = voted.filter((s) => s.side === "plaintiff").length;
+    const forD = voted.length - forP;
+    const scored = voted.length > 0 && r.outcome !== "contempt";
+    // Scored cards: the case header sits between the justices' votes and the "How sure" bar,
+    // about 25% smaller (Max). Cards without a vote keep "Case #… / title" at the top.
+    const scoredHeader = scored
+      ? el(
+          "div",
+          { class: "rc-head" },
+          el("div", { class: "rc-case" }, c.label),
+          el(
+            "div",
+            { class: "rc-score" },
+            el("span", { class: `rc-party${r.outcome === "plaintiff" ? " won" : ""}` }, c.plaintiff),
+            el("span", { class: "rc-count" }, `${forP}–${forD}`),
+            el("span", { class: `rc-party${r.outcome === "defendant" ? " won" : ""}` }, c.defendant),
+          ),
+        )
+      : null;
     const card = el(
       "div",
       { class: "ruling-card" },
-      el("div", { class: "rc-case" }, c.label),
-      el("div", { class: "rc-title" }, c.title),
+      scored ? null : el("div", { class: "rc-case" }, c.label),
+      scored ? null : el("div", { class: "rc-title" }, c.title),
       seats.length ? el("div", { class: "rc-seats" }, seats) : null,
-      el("div", { class: `rc-outcome ${outcomeClass}` }, outcome),
-      r.outcome === "compromise"
-        ? el("div", { class: "rc-vote" }, r.lean ? `Leaning ${r.lean.party} ${r.lean.vote}` : `Split ${r.vote}`)
-        : r.vote ? el("div", { class: "rc-vote" }, `Vote ${r.vote}`) : null,
+      scoredHeader,
+      scored
+        ? r.outcome === "compromise" ? el("div", { class: "rc-outcome too_close" }, outcome) : null
+        : el("div", { class: `rc-outcome ${outcomeClass}` }, outcome),
+      !scored && r.vote ? el("div", { class: "rc-vote" }, `Vote ${r.vote}`) : null,
       r.split
         ? el(
             "div",
@@ -220,7 +243,8 @@
             "div",
             { class: "rc-meter" },
             el("div", { class: "label" }, el("span", {}, "How sure the court is"), el("span", {}, `${pct}%`)),
-            el("div", { class: "track" }, el("div", { class: "fill", style: `width:${pct}%` })),
+            // Red → yellow → green across the whole track; the fill reveals as much as the court is sure.
+            el("div", { class: "track" }, el("div", { class: "fill", style: `width:${pct}%;background-size:${pct > 0 ? (10000 / pct).toFixed(2) : 100}% 100%` })),
           )
         : null,
       r.sentence ? el("div", { class: "rc-sentence" }, `Sentence: ${r.sentence.text}`) : null,
@@ -292,24 +316,40 @@
   }
 
   let player = null;
-  function stopAudio() {
-    if (player) { player.pause(); player = null; }
-  }
 
   /** The gavel, then the verdict. Phones may block autoplay; then the ▶ button pulses instead. */
+  // The verdict ends with the judge's "The end!!!", and then the gavel: Max's single strike,
+  // three times, about 0.4 s apart (overlapping, so each strike rings out).
+  const GAVEL_STRIKES = 3;
+  const GAVEL_GAP_MS = 400;
+  let gavelTimers = [];
+  let strikes = [];
+
+  function stopAudio() {
+    if (player) { player.pause(); player = null; }
+    gavelTimers.forEach(clearTimeout);
+    gavelTimers = [];
+    strikes.forEach((a) => a.pause());
+    strikes = [];
+  }
+
+  function bangGavel() {
+    for (let i = 0; i < GAVEL_STRIKES; i++) {
+      gavelTimers.push(
+        setTimeout(() => {
+          const a = new Audio("/sfx/gavel.mp3");
+          strikes.push(a);
+          a.play().catch(() => {}); // autoplay blocked or no file: the verdict still stands
+        }, i * GAVEL_GAP_MS),
+      );
+    }
+  }
+
+  /** After a live hearing: the judge speaks, then the gavel. Phones may block autoplay; then ▶ pulses. */
   function ceremony(voice) {
     stopAudio();
-    const gavel = new Audio("/sfx/gavel.mp3");
-    player = gavel;
-    let moved = false;
-    const next = () => {
-      if (moved) return;
-      moved = true;
-      if (voice && voice.status === "ready") playVerdict(voice.url);
-    };
-    gavel.addEventListener("ended", next);
-    gavel.addEventListener("error", next); // no gavel.mp3 yet: go straight to the verdict
-    gavel.play().catch((e) => (e && e.name === "NotAllowedError" ? nudgePlay() : next()));
+    if (voice && voice.status === "ready") playVerdict(voice.url);
+    else bangGavel(); // no voice today: just the gavel
   }
 
   function playVerdict(url) {
@@ -318,7 +358,10 @@
     player = a;
     const btn = document.getElementById("play-verdict");
     if (btn) btn.textContent = "🔊 The judge speaks…";
-    a.addEventListener("ended", () => { if (btn) btn.textContent = "▶ Hear the verdict again"; });
+    a.addEventListener("ended", () => {
+      if (btn) btn.textContent = "▶ Hear the verdict again";
+      bangGavel(); // "The end!!!" BANG BANG BANG
+    });
     a.play().catch(() => nudgePlay());
   }
 

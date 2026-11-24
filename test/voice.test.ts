@@ -2,6 +2,8 @@ import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
+import { spokenVerdict } from "../src/court/voice.ts";
+import { parseCatchphrase } from "../src/shared/cast.ts";
 import { STUB_MP3, stubTts } from "../src/shared/stub.ts";
 import { login, makeApp } from "./helpers.ts";
 
@@ -38,9 +40,12 @@ describe("the spoken verdict", () => {
 
     expect(stubTts.requests).toHaveLength(1);
     const bench = (m.ctx.db.prepare("SELECT bench_verdict FROM rulings WHERE case_id = ?").get(id) as { bench_verdict: string }).bench_verdict;
-    expect(stubTts.requests[0]).toEqual({ voice: "judge-voice", text: bench, model_id: "eleven_flash_v2_5" });
-    expect(bench.length).toBeLessThanOrEqual(300);
-    expect(m.ctx.budget.used("tts_chars")).toBe(bench.length);
+    // The judge ends with his catchphrase, so the page can bang the gavel right after it.
+    const spoken = spokenVerdict(bench, m.ctx.cast.catchphrase);
+    expect(stubTts.requests[0]).toEqual({ voice: "judge-voice", text: spoken, model_id: "eleven_flash_v2_5" });
+    expect(spoken.endsWith(m.ctx.cast.catchphrase)).toBe(true);
+    expect(spoken.length).toBeLessThanOrEqual(300);
+    expect(m.ctx.budget.used("tts_chars")).toBe(spoken.length);
 
     const file = join(env.DATA_DIR, "audio", `case-${number}.mp3`);
     expect(new Uint8Array(readFileSync(file))).toEqual(STUB_MP3);
@@ -98,5 +103,21 @@ describe("the spoken verdict", () => {
     expect(stubTts.requests).toHaveLength(0);
     expect(kinds(m, id).some((k) => k.startsWith("voice."))).toBe(false);
     expect(existsSync(join(env.DATA_DIR, "audio"))).toBe(false);
+  });
+});
+
+describe("“The end!!!”: the spoken verdict ends with the judge's catchphrase", () => {
+  it("is read from Max's persona", () => {
+    expect(parseCatchphrase(readFileSync("content/judge-persona.md", "utf8"))).toBe("The end!!!");
+    expect(parseCatchphrase("no catchphrase here")).toBeNull();
+  });
+
+  it("is added once, never twice, and the whole thing stays within 300 characters", () => {
+    expect(spokenVerdict("The court rules for Max", "The end!!!")).toBe("The court rules for Max. The end!!!");
+    expect(spokenVerdict("Max wins! The end!!!", "The end!!!")).toBe("Max wins! The end!!!");
+    expect(spokenVerdict("Max wins. The end!", "The end!!!")).toBe("Max wins. The end!");
+    const long = spokenVerdict("word ".repeat(80).trim(), "The end!!!");
+    expect(long.length).toBeLessThanOrEqual(300);
+    expect(long.endsWith(". The end!!!")).toBe(true);
   });
 });

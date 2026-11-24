@@ -17,6 +17,14 @@
 .ruling-card .rc-outcome { font: 800 1.45rem/1.2 Georgia, serif; margin: 8px 0 2px; }
 .ruling-card .rc-outcome.contempt { color: var(--bad); }
 .ruling-card .rc-outcome.too_close { color: var(--info); }
+.ruling-card .rc-score { display: flex; align-items: baseline; justify-content: center; gap: 12px; flex-wrap: wrap; margin: 6px 0 12px; font: 800 1.45rem/1.2 Georgia, serif; }
+.ruling-card .rc-score .rc-count { font: 800 1.6rem/1 ui-monospace, monospace; color: var(--brass); }
+/* Max: the scored header sits under the justices, about 25% smaller (same colors). */
+.ruling-card .rc-head { margin: 4px 0 0; }
+.ruling-card .rc-head .rc-case { font-size: 0.64rem; }
+.ruling-card .rc-head .rc-score { font-size: 1.09rem; gap: 9px; margin: 3px 0 6px; }
+.ruling-card .rc-head .rc-score .rc-count { font-size: 1.2rem; }
+.ruling-card .rc-score .rc-party.won { color: var(--good); }
 .ruling-card .rc-vote { color: var(--muted); font-weight: 650; }
 
 .rc-seats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 14px 0; }
@@ -33,7 +41,9 @@
 .rc-meter { margin: 14px 0 6px; text-align: left; }
 .rc-meter .label { display: flex; justify-content: space-between; font-size: 0.85rem; font-weight: 700; }
 .rc-meter .track { height: 14px; background: var(--line); border-radius: 999px; overflow: hidden; margin-top: 4px; }
-.rc-meter .fill { height: 100%; background: linear-gradient(90deg, var(--warn), var(--good)); border-radius: 999px; transition: width 0.8s ease-out; }
+/* The gradient spans the whole track (background-size is set inline from the %), so the fill only
+   reveals it: a 30% ruling ends in red-orange, an 86% one reaches green. */
+.rc-meter .fill { height: 100%; background-image: linear-gradient(90deg, #d93a2b 0%, #f2c230 50%, #2e9e4f 100%); background-repeat: no-repeat; border-radius: 999px; transition: width 0.8s ease-out; }
 
 .rc-split { margin: 14px 0 6px; padding: 10px; border-radius: 10px; border: 2px dashed var(--info); }
 .rc-split .label { font-weight: 800; color: var(--info); margin-bottom: 4px; }

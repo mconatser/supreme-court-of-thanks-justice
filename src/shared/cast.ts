@@ -12,6 +12,14 @@ export interface Cast {
   justices: { letter: string; heart: string; memory: string };
   /** From the justices table in content/judge-persona.md (Max's words); "" until written. */
   personalities: { letter: string; heart: string; memory: string };
+  /** The judge's gavel catchphrase (content/judge-persona.md): the spoken verdict ends with it. */
+  catchphrase: string;
+}
+
+/** The first quoted line under "**Gavel catchphrase:**". */
+export function parseCatchphrase(personaMd: string): string | null {
+  const m = personaMd.match(/\*\*Gavel catchphrase:\*\*\s*\n\s*-\s*"([^"\n]+)"/i);
+  return m?.[1]?.trim() || null;
 }
 
 const SEAT_ROWS: Record<keyof Cast["personalities"], RegExp> = {
@@ -39,6 +47,7 @@ export const DEFAULT_CAST: Cast = {
   lawyer: "Counsel",
   justices: { letter: "Justice Letter", heart: "Justice Heart", memory: "Justice Memory" },
   personalities: { letter: "", heart: "", memory: "" },
+  catchphrase: "The end!",
 };
 
 export function loadCast(contentDir: string): Cast {
@@ -48,7 +57,8 @@ export function loadCast(contentDir: string): Cast {
     cast = { ...DEFAULT_CAST, ...raw, justices: { ...DEFAULT_CAST.justices, ...(raw?.justices ?? {}) } };
   } catch {}
   try {
-    cast = { ...cast, personalities: parsePersonalities(readFileSync(join(contentDir, "judge-persona.md"), "utf8")) };
+    const persona = readFileSync(join(contentDir, "judge-persona.md"), "utf8");
+    cast = { ...cast, personalities: parsePersonalities(persona), catchphrase: parseCatchphrase(persona) ?? cast.catchphrase };
   } catch {}
   return cast;
 }

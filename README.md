@@ -13,6 +13,8 @@ Built for [Fly.io Hacksgiving 2026](https://fly.io/hacksgiving/) by a dad and hi
 
 > Every name in this repo, the demo and the recording is a made-up "court alias". Real names live only in a gitignored `people.json` and a private Box account.
 
+<p align="center"><img src="docs/screenshots/ruling-card-split-compromise.png" alt="A ruling card: Justice Cody votes Max at 91%, Justice Grace votes Dad at 66%, Justice Jack recuses with no relevant precedent; too close to call, the justices strongly disagree, so the court orders a compromise" width="640"></p>
+
 ## How a case goes
 
 ```
@@ -47,6 +49,11 @@ Built for [Fly.io Hacksgiving 2026](https://fly.io/hacksgiving/) by a dad and hi
 8. **Opinion and record.** Ollama writes a short, funny, PG opinion around the decided facts (it can't change them). The record is filed to Box, notices are emailed, and the bench verdict is spoken by ElevenLabs.
 9. **Gavel.** Bang. The case page plays the gavel, then the verdict.
 
+<table><tr>
+<td><img src="docs/screenshots/summons-email.png" alt="A summons email from the Clerk of the Court: Hear ye, hear ye, Dad! Max has brought a case to The Supreme Court of Thanks-Justice, with a Tell the court your side button"></td>
+<td><img src="docs/screenshots/summons-answered.png" alt="The summons page after Dad answered: Thanks, the court heard you! The hearing continues now"></td>
+</tr><tr><td align="center"><em>A summons goes out by email…</em></td><td align="center"><em>…and the answer resumes the hearing.</em></td></tr></table>
+
 Every step appends to an event log that streams to the case page over SSE, and every Jev answer is stored with its step. Jev's probabilities drift a few points between identical runs, so a hearing that resumes after a Sprite nap reuses its stored answers rather than asking again and risking a different verdict.
 
 ## The lawyer
@@ -55,6 +62,22 @@ Every step appends to an event log that streams to the case page over SSE, and e
 - **Rules are enforced in code, not just in the prompt.** It must run a mock trial before filing. It can only file after the client presses **Yes** on the exact filing (typing "yes" doesn't count). It never files a draft the court would hold in contempt. It makes at most 10 tool calls per turn.
 - **It thinks only when it helps.** The model's thinking mode is off everywhere except the one call where it picks a strategy from the mock-trial results.
 - **It learns.** After each ruling it records predicted vs. actual and writes itself a one-line lesson. The last 10 lessons go into its system prompt, and "Counsel's accuracy" is the Brier score over finished cases.
+
+<table><tr>
+<td><img src="docs/screenshots/mock-trial-ready-to-file.png" alt="Greg's mock trial: three drafts scored 43%, 30% and 31%; the best one is starred, and the Ready to file? card shows the exact filing with Yes, file it! and Not yet buttons"></td>
+<td><img src="docs/screenshots/greg-follows-the-hearing.png" alt="Counsel's notes following the hearing live after Dad was summoned, and Greg reporting the compromise: I'd predicted 43%, plus the lesson he learned"></td>
+</tr><tr><td align="center"><em>Mock trial, then “Ready to file?” on the exact filing.</em></td><td align="center"><em>Greg follows the hearing and reports back.</em></td></tr></table>
+
+<p align="center"><img src="docs/screenshots/counsel-accuracy-and-lessons.png" alt="Counsel's accuracy: Brier score 0.005 over 1 case; case #0002 predicted 43%, ended in a compromise; lessons learned" width="420"></p>
+
+### Separation of powers
+
+The lawyer runs on its own Sprite, `fc-lawyer`. Connector access policies give Box, email and the judge's voice to the courthouse only, so when counsel tries to reach the court's tools directly, every attempt is refused.
+
+<table><tr>
+<td><img src="docs/screenshots/greg-on-fc-lawyer.png" alt="Greg on fc-lawyer interviewing his client about Article 3, with the ex parte panel beside the chat"></td>
+<td><img src="docs/screenshots/ex-parte-denied.png" alt="Motion to contact the witness directly: DENIED by the court's connector policy. Box, AgentMail and ElevenLabs are each denied from fc-lawyer"></td>
+</tr></table>
 
 ## Running it
 

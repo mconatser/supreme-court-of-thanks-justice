@@ -13,6 +13,20 @@ import type { Gateway } from "../shared/gateway.ts";
 
 export const BENCH_VERDICT_MAX = 300;
 
+/**
+ * What the judge says out loud: the bench verdict, ending with the gavel catchphrase ("The end!!!")
+ * so the page can bang the gavel right after it. Trimmed so the whole thing stays within the cap.
+ */
+export function spokenVerdict(bench: string, catchphrase: string, max = BENCH_VERDICT_MAX): string {
+  const text = bench.trim();
+  const key = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  if (!catchphrase.trim() || key(text).endsWith(key(catchphrase))) return text.slice(0, max);
+  const room = max - catchphrase.length - 1;
+  let body = text.length > room ? text.slice(0, room).replace(/\s+\S*$/, "") : text;
+  if (!/[.!?]$/.test(body)) body += ".";
+  return `${body} ${catchphrase}`.slice(0, max);
+}
+
 export type VoiceResult =
   | { status: "ready"; path: string; cached: boolean }
   | { status: "no_budget" | "disabled" | "failed" };
