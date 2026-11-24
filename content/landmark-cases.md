@@ -1,6 +1,6 @@
 # Landmark Cases
 
-_Made-up historic rulings that Justice Memory can cite, even on a brand-new court._
+_Made-up historic rulings that Justice Jack can cite, even on a brand-new court._
 
 <!--
 How to write a landmark case:
@@ -12,7 +12,7 @@ How to write a landmark case:
     Outcome: what it decided, and why (one or two sentences)
     Vote: 3–0 or 2–1
     Articles: the article numbers it was about, like 1, 4
-- Justice Memory only uses a landmark when the court thinks it's really about the same
+- Justice Jack only uses a landmark when the court thinks it's really about the same
   kind of thing as the new case, so make the Question specific.
 - A landmark whose title starts with "(Placeholder" is ignored by the court.
 -->

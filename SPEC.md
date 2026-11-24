@@ -509,7 +509,7 @@ new_evidence (noul, appeals only), "The new filing adds facts or arguments that 
 | `file_case({type, title, defendant, claim, relief, argument})` | Only allowed after `ask_client` got a yes. Calls `POST {COURT_URL}/api/cases`. |
 | `watch_hearing(number)` | Subscribes to the court's SSE stream, relays events into the notes, and returns the ruling |
 
-- **After a ruling:** store predicted vs. actual, and have the LLM write a one-line lesson ("Justice Heart cares about who did the work").
+- **After a ruling:** store predicted vs. actual, and have the LLM write a one-line lesson ("Justice Grace cares about who did the work").
 - **Learning over the week:** the lessons are what make the lawyer improve, and its memory lives on its Sprite's disk.
 
 ### 9.4 Ex parte demo (Phase 4)
