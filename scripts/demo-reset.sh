@@ -59,7 +59,10 @@ fi
 sprite-env services stop "$SERVICE" >/dev/null 2>&1 || true
 mkdir -p "$backup"
 chmod 700 "$backup"
-for p in "${present[@]}"; do mv "$p" "$backup/"; done
+# Listed again now that the service is stopped: closing SQLite folds the -wal/-shm files in and deletes them.
+for p in "${items[@]}"; do
+  if [ -e "$p" ]; then mv "$p" "$backup/"; fi
+done
 if [ "$plan" != "NONE" ] && [ "$plan" != "SAME" ]; then
   cp -p people.json "$backup/people.json"
   python3 - <<'PY'
