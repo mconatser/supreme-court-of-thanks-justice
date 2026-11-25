@@ -14,6 +14,7 @@ import { Lawyer, type LawyerContext } from "./agent.ts";
 import { CourtClient } from "./court.ts";
 import { openLawyerDb } from "./db.ts";
 import { exParte } from "./exparte.ts";
+import { noStaleCache } from "../shared/static.ts";
 
 export interface LawyerOverrides {
   dbPath?: string;
@@ -62,6 +63,7 @@ export function createLawyerApp(
   const cfg = ctx.cfg;
   const publicDir = opts.publicDir ?? "public";
   const app = new Hono();
+  app.use("*", noStaleCache); // a deploy must reach open browsers (see shared/static.ts)
   const auth = requireRole(cfg, "lawyer");
 
   const notReady = () =>

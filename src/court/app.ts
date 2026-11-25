@@ -1,5 +1,4 @@
 import { readFileSync } from "node:fs";
-import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono, type Context } from "hono";
 import { streamSSE } from "hono/streaming";
 import { z } from "zod";
@@ -21,6 +20,7 @@ import { loadPeople, PeopleError, publicParty } from "../shared/people.ts";
 import { landmarkAsPrecedent } from "./landmarks.ts";
 import { AppealError, ApprovalError, RemarkError, SummonsError } from "./hearing.ts";
 import { MistrialError } from "./mistrial.ts";
+import { noStaleCache, serveAssets } from "../shared/static.ts";
 import { caseLabel } from "./precedent.ts";
 import { findPrecedent } from "./precedent.ts";
 import { caseView, docketView, publicEvent, tokenCaseView } from "./views.ts";
@@ -64,6 +64,7 @@ export function createCourtApp(ctx: CourtContext, opts: CourtAppOptions = {}) {
   const court = requireRole(cfg, "court");
   const parent = requireRole(cfg, "parent");
   const app = new Hono();
+  app.use("*", noStaleCache); // pages and API answers too, so a deploy reaches open browsers
 
   const page = (name: string) => (c: Context) => c.html(readFileSync(`${publicDir}/${name}`, "utf8"));
   const firstIssue = (e: z.ZodError) => e.issues[0]?.message ?? "Something in the form isn't right.";
@@ -134,9 +135,7 @@ export function createCourtApp(ctx: CourtContext, opts: CourtAppOptions = {}) {
     }
   });
 
-  app.use("/css/*", serveStatic({ root: publicDir }));
-  app.use("/js/*", serveStatic({ root: publicDir }));
-  app.use("/sfx/*", serveStatic({ root: publicDir }));
+  serveAssets(app, publicDir);
 
   // ---------- court passcode ----------
 

@@ -3,12 +3,12 @@
  * redirects to LAWYER_URL), or lawyer (counsel only, with its own login). Used by main.ts and tests.
  */
 import { readFileSync } from "node:fs";
-import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 import { createCourtApp } from "./court/app.ts";
 import { createCourtContext, type ContextOverrides, type CourtContext } from "./court/context.ts";
 import { createLawyer, createLawyerApp, type LawyerOverrides } from "./lawyer/app.ts";
 import { rolesForPasscode, startSession } from "./shared/auth.ts";
+import { noStaleCache, serveAssets } from "./shared/static.ts";
 import type { Config } from "./shared/config.ts";
 import type { Person } from "./shared/people.ts";
 
@@ -21,6 +21,7 @@ export interface BuiltApp {
 export function buildApp(cfg: Config, people: Person[], o: { court?: ContextOverrides; lawyer?: LawyerOverrides } = {}): BuiltApp {
   const bootedAt = Date.now();
   const app = new Hono();
+  app.use("*", noStaleCache); // every page, script and style: a deploy must reach open browsers
   const runsCourt = cfg.MODE === "all" || cfg.MODE === "court";
   const runsLawyer = cfg.MODE === "all" || cfg.MODE === "lawyer";
 
@@ -46,7 +47,7 @@ export function buildApp(cfg: Config, people: Person[], o: { court?: ContextOver
       if (!roles.length) return c.json({ error: "That passcode isn't right. Try again!" }, 401);
       return c.json({ ok: true, roles: await startSession(c, cfg, roles) });
     });
-    for (const dir of ["css", "js", "sfx"]) app.use(`/${dir}/*`, serveStatic({ root: "public" }));
+    serveAssets(app, "public");
     app.get("/healthz", (c) => c.json({ ok: true, bootedAt, uptimeMs: Date.now() - bootedAt, deployId: null }));
   }
   return { app, court, lawyer };
