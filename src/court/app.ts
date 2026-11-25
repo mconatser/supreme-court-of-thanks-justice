@@ -98,7 +98,7 @@ export function createCourtApp(ctx: CourtContext, opts: CourtAppOptions = {}) {
   const TOKEN = "{[A-Za-z0-9_-]{20,100}}";
   app.get(`/summons/:token${TOKEN}`, page("summons.html"));
 
-  app.get(`/api/summons/:token${TOKEN}`, (c) => {
+  app.get(`/api/summons/:token${TOKEN}`, async (c) => {
     const s = ctx.hearings.summonsByToken(c.req.param("token"));
     if (!s) return c.json({ error: "The court can't find that summons." }, 404);
     const k = ctx.hearings.getCase(s.case_id)!;
@@ -114,6 +114,8 @@ export function createCourtApp(ctx: CourtContext, opts: CourtAppOptions = {}) {
       relief: k.relief,
       maxLength: LIMITS.testimony,
       court: ctx.cast.court,
+      // Only for a signed-in session: the full case page needs the court passcode anyway.
+      caseUrl: (await getRoles(c, cfg)).includes("court") ? `/cases/${k.number}` : null,
     });
   });
 
@@ -320,11 +322,12 @@ export function createCourtApp(ctx: CourtContext, opts: CourtAppOptions = {}) {
   };
   const caseHtml = () => readFileSync(`${publicDir}/case.html`, "utf8");
 
-  app.get(`/v/:token${TOKEN}`, (c) => {
+  app.get(`/v/:token${TOKEN}`, async (c) => {
     const k = viewCase(c);
     if (!k) return c.html("<p style=\"font-family:system-ui;padding:24px\">The court can't find that case. The link may be wrong.</p>", 404);
     const token = c.req.param("token");
-    const config = JSON.stringify({ number: k.number, caseUrl: `/api/v/${token}/case`, streamUrl: `/api/v/${token}/stream`, readOnly: true });
+    const signedIn = (await getRoles(c, cfg)).includes("court");
+    const config = JSON.stringify({ number: k.number, caseUrl: `/api/v/${token}/case`, streamUrl: `/api/v/${token}/stream`, readOnly: true, ...(signedIn ? { fullCaseUrl: `/cases/${k.number}` } : {}) });
     return c.html(caseHtml().replace('<script src="/js/case.js">', `<script>window.FC_CASE = ${config};</script>\n<script src="/js/case.js">`));
   });
 

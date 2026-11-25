@@ -105,7 +105,7 @@ describe("case page, live from the stream", () => {
     await settle();
 
     const button = document.querySelector<HTMLAnchorElement>("#summons-slot a.btn");
-    expect(button?.getAttribute("href")).toBe("/summons/abc123");
+    expect(button?.getAttribute("href")).toBe("/summons/abc123?back=case");
     expect(button?.textContent).toContain("Dad: tell your side");
     expect(document.querySelector("#summons-slot")!.textContent).toMatch(/emailed/);
     expect(document.querySelector("#transcript")!.textContent).toContain("The court summons Dad");
@@ -123,7 +123,7 @@ describe("case page, live from the stream", () => {
     await new Promise((r) => setTimeout(r, 150));
     await settle();
     // …and answers last, with the case as it was before the summons. It must not win.
-    expect(document.querySelector<HTMLAnchorElement>("#summons-slot a.btn")?.getAttribute("href")).toBe("/summons/abc123");
+    expect(document.querySelector<HTMLAnchorElement>("#summons-slot a.btn")?.getAttribute("href")).toBe("/summons/abc123?back=case");
   });
 
   it("removes the button when the testimony arrives", async () => {
@@ -336,4 +336,66 @@ describe("footer credits", () => {
       if (page === "lawyer") expect(footer).toContain("Greg runs on Ollama");
     });
   }
+});
+
+describe("after a summons: back on the full case page, controls appear with the ruling", () => {
+  const ruled = (over: Record<string, unknown> = {}) =>
+    baseCase({
+      status: "ruled",
+      final: true,
+      summons: [{ party: "Dad", status: "answered", via: "in_person", url: null }],
+      ruling: { outcome: "plaintiff", winner: "Max", vote: "2–0", confidencePct: 80, seats: [], sentence: null, citedArticles: [], voice: { status: "none" } },
+      appeal: { status: null, canAppeal: true, parties: ["Max", "Dad"] },
+      mistrial: { offered: true },
+      viewer: { isParent: true },
+      ...over,
+    });
+
+  it("the appeal form and the mistrial button show when the ruling lands, without a reload", async () => {
+    current = baseCase({ status: "deliberating", summons: [{ party: "Dad", status: "answered", via: "in_person", url: null }] });
+    loadPage();
+    await settle();
+    expect(document.querySelector("#mistrial-slot button")).toBeNull();
+    current = ruled();
+    FakeEventSource.last!.emit("court", { id: 20, ts: Date.now(), actor: "judge", kind: "ruling.decided", message: "The court has decided." });
+    await settle();
+    expect(document.querySelector("#mistrial-slot button")?.textContent).toContain("Declare a mistrial");
+    expect(document.querySelector("#appeal-slot form")).toBeTruthy();
+  });
+
+  it("the summons button marks that it came from the full case page", async () => {
+    current = baseCase({ status: "awaiting_testimony", summons: [{ party: "Dad", status: "pending", via: "in_person", url: "/summons/abc123" }] });
+    loadPage();
+    await settle();
+    expect(document.querySelector<HTMLAnchorElement>("#summons-slot a.btn")?.getAttribute("href")).toBe("/summons/abc123?back=case");
+  });
+
+  it("coming back with the browser's Back button (page restored from cache) refreshes and reconnects", async () => {
+    current = baseCase({ status: "awaiting_testimony", summons: [{ party: "Dad", status: "pending", via: "in_person", url: "/summons/abc123" }] });
+    loadPage();
+    await settle();
+    const first = FakeEventSource.last!;
+    current = ruled(); // decided while the page was in the browser's cache
+    window.dispatchEvent(Object.assign(new Event("pageshow"), { persisted: true }));
+    await settle();
+    expect(FakeEventSource.last).not.toBe(first);
+    expect(first.closed).toBe(true);
+    expect(document.querySelector("#mistrial-slot button")?.textContent).toContain("Declare a mistrial");
+    expect(document.querySelector("#summons-slot a.btn")).toBeNull();
+  });
+
+  it("/v/ shows “Open the full case page” when the server says the viewer is signed in, and not otherwise", async () => {
+    (window as any).FC_CASE = { number: 1, caseUrl: "/api/v/tok/case", streamUrl: "/api/v/tok/stream", readOnly: true, fullCaseUrl: "/cases/1" };
+    current = ruled({ mistrial: { offered: false }, appeal: { status: null, canAppeal: false, parties: ["Max", "Dad"] } });
+    loadPage();
+    await settle();
+    const link = document.querySelector<HTMLAnchorElement>("a.full-case");
+    expect(link?.getAttribute("href")).toBe("/cases/1");
+    expect(link?.textContent).toContain("Open the full case page");
+
+    (window as any).FC_CASE = { number: 1, caseUrl: "/api/v/tok/case", streamUrl: "/api/v/tok/stream", readOnly: true };
+    loadPage();
+    await settle();
+    expect(document.querySelector("a.full-case")).toBeNull();
+  });
 });

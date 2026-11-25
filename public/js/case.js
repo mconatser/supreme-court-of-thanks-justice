@@ -9,6 +9,10 @@
   if (readOnly) {
     const back = document.querySelector(".bar .back");
     if (back) back.replaceWith(el("span", { class: "seal" }, "⚖️"));
+    // Signed in (the server checked): offer the way back to the page with the controls.
+    if (CFG.fullCaseUrl) {
+      document.querySelector("main").prepend(el("p", {}, el("a", { class: "btn secondary full-case", href: CFG.fullCaseUrl }, "⚖️ Open the full case page")));
+    }
   }
   const transcript = document.getElementById("transcript");
   const thinking = document.getElementById("thinking");
@@ -153,7 +157,8 @@
           { class: "banner", style: "border-color:var(--warn)" },
           el("div", { style: "font-weight:700" }, `📜 The court summons ${s.party}!`),
           el("div", { class: "small muted", style: "margin:4px 0 10px" }, s.via === "email" ? "A summons was emailed, or answer here if they're with you." : "Hand them the phone so they can tell their side."),
-          el("a", { class: "btn", href: s.url }, `🗣️ ${s.party}: tell your side`),
+          // ?back=case: once answered, the summons page brings a signed-in phone back here, not to /v/.
+          el("a", { class: "btn", href: readOnly ? s.url : `${s.url}?back=case` }, `🗣️ ${s.party}: tell your side`),
         ),
       ),
     );
@@ -400,6 +405,19 @@
       // otherwise EventSource reconnects by itself (with Last-Event-ID)
     };
   }
+
+  // Back to this page with the browser's Back button: the browser may restore its cached copy, with
+  // the stream closed and the case as it was. Catch up: refresh, and replay what was missed.
+  window.addEventListener("pageshow", async (ev) => {
+    if (!ev.persisted) return;
+    if (es) es.close();
+    const c = await refresh().catch(() => null);
+    if (!c) return;
+    if (c.final) liveSession = false; // decided while away: no surprise gavel
+    closedSeen = false;
+    thinking.hidden = c.final;
+    connect();
+  });
 
   try {
     const c = await refresh();

@@ -30,12 +30,16 @@
   );
 
   // This same link follows the case: once answered (or expired), it opens the hearing and the ruling.
-  const follow = () => location.replace(`/v/${token}`);
+  // Pressed from the full case page on a signed-in phone (?back=case, and the server says signed in),
+  // it goes back there, controls and all; otherwise (an emailed link) to the read-only /v/ view.
+  const back = new URLSearchParams(location.search).get("back") === "case" && s.caseUrl;
+  const target = back ? s.caseUrl : `/v/${token}`;
+  const follow = () => location.replace(target);
   if (s.status !== "pending") {
     document.getElementById("heading").textContent = s.status === "answered" ? "Thanks, the court heard you!" : "This summons has expired";
     details.append(
       el("p", { class: "muted" }, s.status === "answered" ? "Your testimony is in the record." : "The court decided without you this time."),
-      el("a", { class: "btn", href: `/v/${token}` }, "⚖️ Follow the case"),
+      el("a", { class: "btn", href: target }, back ? "⚖️ Back to the case" : "⚖️ Follow the case"),
     );
     setTimeout(follow, 1500);
     return;

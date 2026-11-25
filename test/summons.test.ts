@@ -236,6 +236,20 @@ describe("following the case by token (no passcode)", () => {
     return { m, id, token };
   }
 
+  it("a signed-in phone is offered the full case page; a summons link opened without signing in is not", async () => {
+    const m = setup({}, ["p3"]);
+    const { id } = m.ctx.hearings.file(ONE_SIDED);
+    await m.ctx.hearings.start(id);
+    const token = tokenOf(m, id);
+    const cookie = await login(m.app);
+    // The summons page learns where "back" is only when signed in…
+    expect((await (await m.app.request(`/api/summons/${token}`, { headers: { cookie } })).json()).caseUrl).toBe("/cases/1");
+    expect((await (await m.app.request(`/api/summons/${token}`)).json()).caseUrl).toBeNull();
+    // …and so does /v/.
+    expect(await (await m.app.request(`/v/${token}`, { headers: { cookie } })).text()).toContain('"fullCaseUrl":"/cases/1"');
+    expect(await (await m.app.request(`/v/${token}`)).text()).not.toContain("fullCaseUrl");
+  });
+
   it("the summons token opens that case read-only: ruling, no controls, no summons links", async () => {
     const { m, token } = await answered();
     const v = await (await m.app.request(`/api/v/${token}/case`)).json();
