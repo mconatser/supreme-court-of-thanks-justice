@@ -32,7 +32,6 @@ sprite console -s fc-court
 Then, **inside the Sprite**:
 
 ```bash
-gh auth login        # if gh is installed; otherwise use a read-only fine-grained token for git clone
 git clone https://github.com/mconatser/supreme-court-of-thanks-justice.git ~/family-court
 cd ~/family-court
 npm ci

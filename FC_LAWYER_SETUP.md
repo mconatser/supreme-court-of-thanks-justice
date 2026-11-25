@@ -15,7 +15,6 @@ sprite console -s fc-lawyer
 Then, **inside the Sprite**:
 
 ```bash
-gh auth login
 git clone https://github.com/mconatser/supreme-court-of-thanks-justice.git ~/family-court
 cd ~/family-court && npm ci
 node -e "require('better-sqlite3')(':memory:'); console.log('better-sqlite3 OK on', process.arch)"
